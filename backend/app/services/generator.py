@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import httpx
+
+from app.config import Settings
+from app.schemas import EvidenceSource, LLMProvider, ProviderInfo
+from app.services.retrieval import build_evidence_answer
+
+
+PROVIDER_LABELS = {
+    LLMProvider.EVIDENCE: "Evidence-backed baseline",
+    LLMProvider.GEMINI: "Google Gemini",
+    LLMProvider.GROQ: "Groq",
+    LLMProvider.OPENROUTER: "OpenRouter",
+}
+
+
+def provider_info(settings: Settings) -> list[ProviderInfo]:
+    return [
+        ProviderInfo(
+            id=LLMProvider.EVIDENCE,
+            label=PROVIDER_LABELS[LLMProvider.EVIDENCE],
+            model="retrieval-summary",
+            configured=True,
+        ),
+        ProviderInfo(
+            id=LLMProvider.GEMINI,
+            label=PROVIDER_LABELS[LLMProvider.GEMINI],
+            model=settings.gemini_model,
+            configured=bool(settings.gemini_api_key),
+        ),
+        ProviderInfo(
+            id=LLMProvider.GROQ,
+            label=PROVIDER_LABELS[LLMProvider.GROQ],
+            model=settings.groq_model,
+            configured=bool(settings.groq_api_key),
+        ),
+        ProviderInfo(
+            id=LLMProvider.OPENROUTER,
+            label=PROVIDER_LABELS[LLMProvider.OPENROUTER],
+            model=settings.openrouter_model,
+            configured=bool(settings.openrouter_api_key),
+        ),
+    ]
+
+
+async def generate_answer(
+    question: str,
+    evidence: list[EvidenceSource],
+    *,
+    settings: Settings,
+    provider: LLMProvider,
+) -> tuple[str, str]:
+    if provider == LLMProvider.EVIDENCE:
+        return build_evidence_answer(question, evidence), "retrieval-summary"
+    if provider == LLMProvider.GEMINI:
+        return await _generate_with_gemini(question, evidence, settings=settings)
+    if provider == LLMProvider.GROQ:
+        return await _generate_with_openai_compatible(
+            question,
+            evidence,
+            api_key=settings.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
+            model=settings.groq_model,
+            settings=settings,
+        )
+    if provider == LLMProvider.OPENROUTER:
+        return await _generate_with_openai_compatible(
+            question,
+            evidence,
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+            model=settings.openrouter_model,
+            settings=settings,
+        )
+    raise ValueError(f"Unsupported provider: {provider.value}")
+
+
+def _evidence_block(evidence: list[EvidenceSource]) -> str:
+    return "\n".join(
+        f"- {source.title}: {source.snippet}" for source in evidence[:5]
+    ) or "No evidence was retrieved."
+
+
+def _provider_error(provider: str, error: httpx.HTTPStatusError) -> ValueError:
+    """Turn an upstream API error into a safe message for the website."""
+    detail = error.response.text.strip().replace("\n", " ")
+    if len(detail) > 500:
+        detail = f"{detail[:500]}..."
+    return ValueError(
+        f"{provider} request failed (HTTP {error.response.status_code}). "
+        f"{detail or 'The provider did not return an error message.'}"
+    )
+
+
+async def _generate_with_openai_compatible(
+    question: str,
+    evidence: list[EvidenceSource],
+    *,
+    api_key: str | None,
+    base_url: str,
+    model: str,
+    settings: Settings,
+) -> tuple[str, str]:
+    if not api_key:
+        raise ValueError("This provider has not been configured on the server.")
+
+    evidence_block = _evidence_block(evidence)
+
+    payload = {
+        "model": model,
+        "temperature": 0.2,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a concise, factual assistant. Answer the user's question "
+                    "directly using your general knowledge. The supplied evidence is useful "
+                    "context, but do not mention it or refuse solely because it is incomplete. "
+                    "Do not start with phrases such as 'Based on the provided evidence'."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Question: {question}\n\nEvidence:\n{evidence_block}",
+            },
+        ],
+    }
+
+    timeout = httpx.Timeout(settings.request_timeout_seconds)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as error:
+        raise _provider_error("LLM provider", error) from error
+    except httpx.RequestError as error:
+        raise ValueError(f"Could not reach the LLM provider: {error}") from error
+
+    return data["choices"][0]["message"]["content"].strip(), model
+
+
+async def _generate_with_gemini(
+    question: str,
+    evidence: list[EvidenceSource],
+    *,
+    settings: Settings,
+) -> tuple[str, str]:
+    if not settings.gemini_api_key:
+        raise ValueError("This provider has not been configured on the server.")
+
+    prompt = (
+        "You are a concise, factual assistant. Answer the user's question directly using "
+        "your general knowledge. The supplied evidence is useful context, but do not mention "
+        "it or refuse solely because it is incomplete. Do not start with phrases such as "
+        "'Based on the provided evidence'.\n\n"
+        f"Question: {question}\n\nEvidence:\n{_evidence_block(evidence)}"
+    )
+    timeout = httpx.Timeout(settings.request_timeout_seconds)
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{settings.gemini_model}:generateContent?key={settings.gemini_api_key}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                url,
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as error:
+        raise _provider_error("Gemini", error) from error
+    except httpx.RequestError as error:
+        raise ValueError(f"Could not reach Gemini: {error}") from error
+
+    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    answer = "".join(part.get("text", "") for part in parts).strip()
+    if not answer:
+        raise ValueError("Gemini returned no text response.")
+    return answer, settings.gemini_model
