@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from app.config import Settings
-from app.schemas import EvidenceSource, LLMProvider, ProviderInfo
+from app.schemas import ChatMessage, EvidenceSource, LLMProvider, ProviderInfo
 from app.services.retrieval import build_evidence_answer
 
 
@@ -50,11 +50,12 @@ async def generate_answer(
     *,
     settings: Settings,
     provider: LLMProvider,
+    history: list[ChatMessage] | None = None,
 ) -> tuple[str, str]:
     if provider == LLMProvider.EVIDENCE:
         return build_evidence_answer(question, evidence), "retrieval-summary"
     if provider == LLMProvider.GEMINI:
-        return await _generate_with_gemini(question, evidence, settings=settings)
+        return await _generate_with_gemini(question, evidence, settings=settings, history=history)
     if provider == LLMProvider.GROQ:
         return await _generate_with_openai_compatible(
             question,
@@ -63,6 +64,7 @@ async def generate_answer(
             base_url="https://api.groq.com/openai/v1",
             model=settings.groq_model,
             settings=settings,
+            history=history,
         )
     if provider == LLMProvider.OPENROUTER:
         return await _generate_with_openai_compatible(
@@ -72,6 +74,7 @@ async def generate_answer(
             base_url="https://openrouter.ai/api/v1",
             model=settings.openrouter_model,
             settings=settings,
+            history=history,
         )
     raise ValueError(f"Unsupported provider: {provider.value}")
 
@@ -80,6 +83,16 @@ def _evidence_block(evidence: list[EvidenceSource]) -> str:
     return "\n".join(
         f"- {source.title}: {source.snippet}" for source in evidence[:5]
     ) or "No evidence was retrieved."
+
+
+def _history_block(history: list[ChatMessage] | None) -> str:
+    if not history:
+        return "No previous conversation."
+    recent = history[-8:]
+    return "\n".join(
+        f"{'User' if message.role == 'user' else 'Assistant'}: {message.content}"
+        for message in recent
+    )
 
 
 def _provider_error(provider: str, error: httpx.HTTPStatusError) -> ValueError:
@@ -101,30 +114,36 @@ async def _generate_with_openai_compatible(
     base_url: str,
     model: str,
     settings: Settings,
+    history: list[ChatMessage] | None,
 ) -> tuple[str, str]:
     if not api_key:
         raise ValueError("This provider has not been configured on the server.")
 
     evidence_block = _evidence_block(evidence)
 
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a concise, factual assistant. Answer the user's latest question "
+                "directly using your general knowledge. The supplied evidence is useful "
+                "context, but do not mention it or refuse solely because it is incomplete. "
+                "Do not start with phrases such as 'Based on the provided evidence'."
+            ),
+        },
+        *[
+            {"role": message.role, "content": message.content}
+            for message in (history or [])[-8:]
+        ],
+        {
+            "role": "user",
+            "content": f"Latest question: {question}\n\nEvidence context:\n{evidence_block}",
+        },
+    ]
     payload = {
         "model": model,
         "temperature": 0.2,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a concise, factual assistant. Answer the user's question "
-                    "directly using your general knowledge. The supplied evidence is useful "
-                    "context, but do not mention it or refuse solely because it is incomplete. "
-                    "Do not start with phrases such as 'Based on the provided evidence'."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Question: {question}\n\nEvidence:\n{evidence_block}",
-            },
-        ],
+        "messages": messages,
     }
 
     timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -150,6 +169,7 @@ async def _generate_with_gemini(
     evidence: list[EvidenceSource],
     *,
     settings: Settings,
+    history: list[ChatMessage] | None,
 ) -> tuple[str, str]:
     if not settings.gemini_api_key:
         raise ValueError("This provider has not been configured on the server.")
@@ -159,7 +179,8 @@ async def _generate_with_gemini(
         "your general knowledge. The supplied evidence is useful context, but do not mention "
         "it or refuse solely because it is incomplete. Do not start with phrases such as "
         "'Based on the provided evidence'.\n\n"
-        f"Question: {question}\n\nEvidence:\n{_evidence_block(evidence)}"
+        f"Conversation so far:\n{_history_block(history)}\n\n"
+        f"Latest question: {question}\n\nEvidence context:\n{_evidence_block(evidence)}"
     )
     timeout = httpx.Timeout(settings.request_timeout_seconds)
     url = (

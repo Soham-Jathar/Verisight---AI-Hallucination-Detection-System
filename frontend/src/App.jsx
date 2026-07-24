@@ -8,44 +8,65 @@ const statusLabel = {
   unsupported: 'Unsupported',
 }
 
-function Score({ label, value, tone = 'indigo' }) {
-  const percent = Math.round((value ?? 0) * 100)
-  return <div className={`score-card ${tone}`}>
-    <span>{label}</span>
-    <strong>{percent}%</strong>
-  </div>
+function createConversation() {
+  return {
+    id: crypto.randomUUID(),
+    title: 'New conversation',
+    messages: [],
+  }
 }
 
-function ClaimList({ claims }) {
-  if (!claims?.length) return null
-  return <section className="result-section">
-    <div className="result-heading"><h3>Claim verification</h3><span>{claims.length} claims</span></div>
-    <div className="claim-list">
-      {claims.map((claim, index) => <article className="claim" key={`${claim.claim}-${index}`}>
-        <span className={`claim-dot ${claim.status}`}></span>
-        <div><b>{claim.claim}</b><p>{statusLabel[claim.status]} - {Math.round(claim.confidence * 100)}% verification confidence</p><small>{claim.rationale}</small></div>
-      </article>)}
+function VerificationCard({ result }) {
+  if (!result?.claims?.length) return null
+  const reliability = Math.round((result.reliability_score ?? 0) * 100)
+
+  return <details className="verification-card">
+    <summary>
+      <span className="verification-dot"></span>
+      Verification available
+      <strong>{reliability}% reliable</strong>
+    </summary>
+    <div className="verification-content">
+      <p className="verification-summary">{result.message}</p>
+      <div className="claim-list">
+        {result.claims.map((claim, index) => <article className="claim" key={`${claim.claim}-${index}`}>
+          <span className={`claim-dot ${claim.status}`}></span>
+          <div>
+            <b>{claim.claim}</b>
+            <p>{statusLabel[claim.status]} · {Math.round(claim.confidence * 100)}% confidence</p>
+          </div>
+        </article>)}
+      </div>
+      {result.evidence?.length > 0 && <div className="citations">
+        <span>Sources</span>
+        {result.evidence.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer">[{index + 1}] {source.title}</a>)}
+      </div>}
     </div>
-  </section>
+  </details>
 }
 
-function EvidenceList({ evidence }) {
-  if (!evidence?.length) return null
-  return <section className="result-section evidence-section">
-    <div className="result-heading"><h3>Evidence and citations</h3><span>{evidence.length} sources</span></div>
-    {evidence.map((source, index) => <article className="evidence" key={`${source.url}-${index}`}>
-      <span>[{index + 1}]</span><div><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></div>
-    </article>)}
-  </section>
+function MessageBubble({ message }) {
+  if (message.role === 'user') return <article className="message user-message"><p>{message.content}</p></article>
+  if (message.pending) return <article className="message assistant-message loading-message"><span className="assistant-avatar">V</span><div><p>Generating and checking sources<span className="typing-dots">...</span></p></div></article>
+
+  return <article className="message assistant-message">
+    <span className="assistant-avatar">V</span>
+    <div className="assistant-copy">
+      <p>{message.content}</p>
+      {message.model && <small>{message.model}</small>}
+      <VerificationCard result={message.verification} />
+    </div>
+  </article>
 }
 
 function App() {
-  const [question, setQuestion] = useState('')
-  const [mode, setMode] = useState('web')
-  const [provider, setProvider] = useState('evidence')
+  const [conversations, setConversations] = useState(() => [createConversation()])
+  const [activeId, setActiveId] = useState(() => conversations?.[0]?.id)
+  const [draft, setDraft] = useState('')
+  const [provider, setProvider] = useState('gemini')
   const [providers, setProviders] = useState([])
   const [apiStatus, setApiStatus] = useState('checking')
-  const [result, setResult] = useState(null)
+  const [verifyEnabled, setVerifyEnabled] = useState(true)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -59,6 +80,8 @@ function App() {
         if (!healthResponse.ok || !providersResponse.ok) throw new Error('Unavailable')
         const providerData = await providersResponse.json()
         setProviders(providerData)
+        const firstConfigured = providerData.find((item) => item.id === 'gemini' && item.configured) ?? providerData.find((item) => item.configured)
+        if (firstConfigured) setProvider(firstConfigured.id)
         setApiStatus('online')
       } catch {
         setApiStatus('offline')
@@ -67,80 +90,108 @@ function App() {
     loadSetup()
   }, [])
 
-  const configuredProviders = useMemo(
-    () => providers.filter((item) => item.id !== 'evidence' && item.configured),
-    [providers],
+  const activeConversation = useMemo(
+    () => conversations.find((conversation) => conversation.id === activeId) ?? conversations[0],
+    [activeId, conversations],
   )
+
+  function startNewChat() {
+    const conversation = createConversation()
+    setConversations((current) => [conversation, ...current])
+    setActiveId(conversation.id)
+    setDraft('')
+    setError('')
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (question.trim().length < 3) {
-      setError('Enter a question with at least three characters.')
-      return
-    }
+    const question = draft.trim()
+    if (question.length < 3 || loading || !activeConversation) return
 
+    const conversationId = activeConversation.id
+    const userMessage = { id: crypto.randomUUID(), role: 'user', content: question }
+    const pendingMessage = { id: crypto.randomUUID(), role: 'assistant', pending: true }
+    const history = activeConversation.messages.map(({ role, content }) => ({ role, content }))
+
+    setConversations((current) => current.map((conversation) => conversation.id === conversationId ? {
+      ...conversation,
+      title: conversation.messages.length === 0 ? question.slice(0, 42) : conversation.title,
+      messages: [...conversation.messages, userMessage, pendingMessage],
+    } : conversation))
+    setDraft('')
     setLoading(true)
     setError('')
-    setResult(null)
+
     try {
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question.trim(), mode, provider }),
+        body: JSON.stringify({ question, provider, mode: 'web', verify: verifyEnabled, history }),
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail ?? 'The analysis request failed.')
-      setResult(payload)
+
+      const assistantMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: payload.answer ?? 'I could not generate an answer.',
+        model: payload.model,
+        verification: verifyEnabled ? payload : null,
+      }
+      setConversations((current) => current.map((conversation) => conversation.id === conversationId ? {
+        ...conversation,
+        messages: conversation.messages.map((message) => message.id === pendingMessage.id ? assistantMessage : message),
+      } : conversation))
     } catch (requestError) {
+      setConversations((current) => current.map((conversation) => conversation.id === conversationId ? {
+        ...conversation,
+        messages: conversation.messages.filter((message) => message.id !== pendingMessage.id),
+      } : conversation))
       setError(requestError.message)
     } finally {
       setLoading(false)
     }
   }
 
-  return <main className="app-shell">
-    <nav className="topbar">
-      <a className="brand" href="#top"><span className="brand-mark">V</span>VeriSight</a>
-      <span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span>
-    </nav>
+  return <main className="chat-app">
+    <aside className="sidebar">
+      <a className="brand" href="#top"><span className="brand-mark">V</span><span>VeriSight</span></a>
+      <button className="new-chat" type="button" onClick={startNewChat}>+ New chat</button>
+      <div className="history-heading"><span>History</span><small>This session</small></div>
+      <nav className="chat-history" aria-label="Chat history">
+        {conversations.map((conversation) => <button type="button" key={conversation.id} className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}>
+          <span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small>
+        </button>)}
+      </nav>
+      <div className="sidebar-footer"><span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span><p>Answers can be checked against web evidence.</p></div>
+    </aside>
 
-    <section className="hero" id="top">
-      <p className="eyebrow">EVIDENCE-GROUNDED AI VERIFICATION</p>
-      <h1>Trust AI answers<br /><em>with evidence.</em></h1>
-      <p className="subtitle">Compare supported language models, verify claims against retrieved sources, and inspect explainable reliability signals.</p>
-    </section>
-
-    <section className="workspace">
-      <form className="question-card" onSubmit={handleSubmit}>
-        <div className="section-heading"><span>01</span><h2>Ask and verify</h2></div>
-        <label htmlFor="question">Your question</label>
-        <textarea id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="For example: Who created Python and when was it first released?" />
-        <div className="select-grid">
-          <div><label htmlFor="provider">LLM provider</label><select id="provider" value={provider} onChange={(event) => setProvider(event.target.value)}>
-            {providers.map((item) => <option key={item.id} value={item.id} disabled={!item.configured}>{item.label}{item.configured ? '' : ' (add API key)'}</option>)}
-            <option value="compare" disabled={configuredProviders.length < 2}>Compare configured LLMs{configuredProviders.length < 2 ? ' (requires 2 keys)' : ''}</option>
-          </select></div>
-          <div><label htmlFor="mode">Evidence mode</label><select id="mode" value={mode} onChange={(event) => setMode(event.target.value)}><option value="web">Web evidence</option><option value="document" disabled>Documents (next)</option><option value="hybrid" disabled>Hybrid (next)</option></select></div>
+    <section className="chat-panel" id="top">
+      <header className="chat-header">
+        <div><p>AI HALLUCINATION DETECTION</p><h1>{activeConversation?.title ?? 'New conversation'}</h1></div>
+        <div className="chat-controls">
+          <label className="provider-select"><span>Model</span><select value={provider} onChange={(event) => setProvider(event.target.value)}>
+            {providers.map((item) => <option key={item.id} value={item.id} disabled={!item.configured}>{item.label}{item.configured ? '' : ' (add key)'}</option>)}
+          </select></label>
+          <label className="verify-toggle"><input type="checkbox" checked={verifyEnabled} onChange={(event) => setVerifyEnabled(event.target.checked)} /><span></span>Verify</label>
         </div>
-        <button className="submit" type="submit" disabled={loading || apiStatus !== 'online'}>{loading ? 'Analyzing...' : 'Generate and verify ->'}</button>
-        {providers.length > 0 && configuredProviders.length === 0 && <p className="setup-note">Add a provider key in <code>backend/.env</code> to generate LLM answers. The evidence-backed baseline works without a key.</p>}
-        {error && <p className="error">{error}</p>}
+      </header>
+
+      <section className="message-thread" aria-live="polite">
+        {!activeConversation?.messages.length && <div className="welcome-card">
+          <span className="assistant-avatar large">V</span>
+          <div><h2>What would you like to know?</h2><p>Ask a question, choose an LLM, and turn on verification to inspect claim-level evidence.</p><div className="suggestions"><button type="button" onClick={() => setDraft('Who created the Python programming language?')}>Who created Python?</button><button type="button" onClick={() => setDraft('Explain quantum computing in simple terms.')}>Explain quantum computing</button></div></div>
+        </div>}
+        {activeConversation?.messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+      </section>
+
+      <form className="composer" onSubmit={handleSubmit}>
+        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Message VeriSight…" aria-label="Message VeriSight" rows="1" />
+        <button type="submit" disabled={loading || apiStatus !== 'online' || draft.trim().length < 3}>{loading ? 'Working…' : 'Send ↑'}</button>
+        <p>{verifyEnabled ? 'Verification is on: answers will be checked against web evidence.' : 'Verification is off: this response will not receive a reliability score.'}</p>
+        {error && <strong className="error">{error}</strong>}
       </form>
-
-      <aside className="pipeline-card">
-        <div className="section-heading"><span>02</span><h2>Verification pipeline</h2></div>
-        <ol><li><b>Generate</b><small>One LLM or multiple selected providers answer.</small></li><li><b>Retrieve</b><small>Web evidence is collected once for the question.</small></li><li><b>Verify</b><small>Each claim is assessed against retrieved evidence.</small></li><li><b>Explain</b><small>Scores, citations, and comparison data are shown.</small></li></ol>
-        <p className="pipeline-note">Next modules: PDF input, deeper retrieval, and uncertainty scoring.</p>
-      </aside>
     </section>
-
-    {result && <section className="results">
-      <div className="results-top"><div><p className="eyebrow">ANALYSIS COMPLETE</p><h2>{result.provider === 'compare' ? 'LLM comparison' : 'Verification report'}</h2><p>{result.message}</p></div><Score label="Estimated reliability" value={result.reliability_score} /></div>
-      {result.provider !== 'compare' && <section className="answer"><span>Generated answer</span><p>{result.answer}</p>{result.model && <small>Model: {result.model}</small>}</section>}
-      {result.comparisons?.length > 0 && <section className="comparison-grid">{result.comparisons.map((item) => <article className="comparison" key={item.provider}><div><b>{item.provider}</b><span>{item.model}</span></div><Score label="Reliability" value={item.reliability_score} /><p>{item.answer}</p></article>)}</section>}
-      <ClaimList claims={result.claims} />
-      <EvidenceList evidence={result.evidence} />
-    </section>}
   </main>
 }
 

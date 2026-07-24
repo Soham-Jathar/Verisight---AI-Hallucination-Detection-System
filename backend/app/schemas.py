@@ -18,10 +18,17 @@ class LLMProvider(str, Enum):
     COMPARE = "compare"
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4_000)
+
+
 class AnalyzeRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2_000)
     mode: VerificationMode = VerificationMode.WEB
     provider: LLMProvider = LLMProvider.EVIDENCE
+    verify: bool = True
+    history: list[ChatMessage] = Field(default_factory=list, max_length=12)
 
 
 class EvidenceSource(BaseModel):
@@ -49,7 +56,7 @@ class ModelAnalysis(BaseModel):
     model: str
     answer: str
     claims: list[ClaimAssessment] = Field(default_factory=list)
-    reliability_score: float = Field(ge=0.0, le=1.0)
+    reliability_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class AnalyzeResponse(BaseModel):

@@ -16,7 +16,11 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             detail=f"Verification mode '{request.mode.value}' is not available yet.",
         )
 
-    evidence = await retrieve_web_evidence(request.question, settings=settings)
+    evidence = (
+        await retrieve_web_evidence(request.question, settings=settings)
+        if request.verify
+        else []
+    )
     selected = [request.provider]
     if request.provider == LLMProvider.COMPARE:
         selected = [
@@ -38,17 +42,18 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 evidence,
                 settings=settings,
                 provider=provider,
+                history=request.history,
             )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        claims = verify_claims(answer, evidence)
+        claims = verify_claims(answer, evidence) if request.verify else []
         analyses.append(
             ModelAnalysis(
                 provider=provider,
                 model=model,
                 answer=answer,
                 claims=claims,
-                reliability_score=reliability_score(claims),
+                reliability_score=reliability_score(claims) if request.verify else None,
             )
         )
 
@@ -61,7 +66,9 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     uncertain = sum(1 for claim in claims if claim.status == "uncertain")
     unsupported = sum(1 for claim in claims if claim.status == "unsupported")
 
-    if not evidence:
+    if not request.verify:
+        message = "Answer generated without verification."
+    elif not evidence:
         message = (
             "No web evidence was retrieved. The answer could not be verified against sources."
         )
