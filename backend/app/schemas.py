@@ -29,6 +29,14 @@ class AnalyzeRequest(BaseModel):
     provider: LLMProvider = LLMProvider.EVIDENCE
     verify: bool = True
     history: list[ChatMessage] = Field(default_factory=list, max_length=12)
+    document_id: str | None = Field(default=None, max_length=80)
+
+
+class DocumentInfo(BaseModel):
+    id: str
+    filename: str
+    pages: int = Field(ge=0)
+    characters: int = Field(ge=0)
 
 
 class EvidenceSource(BaseModel):
@@ -59,6 +67,11 @@ class ModelAnalysis(BaseModel):
     reliability_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class CorrectedAnswer(BaseModel):
+    answer: str
+    citations: list[EvidenceSource] = Field(default_factory=list)
+
+
 class AnalyzeResponse(BaseModel):
     question: str
     mode: VerificationMode
@@ -70,6 +83,7 @@ class AnalyzeResponse(BaseModel):
     evidence: list[EvidenceSource] = Field(default_factory=list)
     claims: list[ClaimAssessment] = Field(default_factory=list)
     reliability_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    correction: CorrectedAnswer | None = None
     comparisons: list[ModelAnalysis] = Field(default_factory=list)
 
 

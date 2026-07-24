@@ -77,6 +77,16 @@ def verify_claims(answer: str, evidence: list[EvidenceSource]) -> list[ClaimAsse
     return assessments
 
 
+def select_citations(answer: str, evidence: list[EvidenceSource], *, limit: int = 2) -> list[EvidenceSource]:
+    """Return only sources whose title/excerpt materially matches the correction."""
+    ranked = sorted(
+        ((_evidence_match(answer, source), source) for source in evidence),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    return [source for score, source in ranked[:limit] if score >= 0.30]
+
+
 def reliability_score(claims: list[ClaimAssessment]) -> float:
     if not claims:
         return 0.0

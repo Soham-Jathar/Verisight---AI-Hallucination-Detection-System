@@ -21,6 +21,14 @@ STOP_WORDS = {
     "this", "that", "what", "when", "where", "which", "who", "with", "would",
 }
 
+# These words describe a category, not the subject being researched. They must
+# never be sufficient on their own to make a search result a valid citation.
+GENERIC_TOPIC_TERMS = {
+    "college", "engineer", "university", "school", "company", "organisation",
+    "organization", "institution", "hospital", "research", "centre", "center",
+    "private", "public", "located", "establish", "affiliate", "approve",
+}
+
 
 def _strip_html(text: str) -> str:
     return unescape(re.sub(r"<[^>]+>", "", text)).strip()
@@ -61,7 +69,30 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
             score += 4
         elif source_years:
             score -= 5
+    host = urlparse(source.url).netloc.lower()
+    if host.endswith((".ac.in", ".edu", ".edu.in", ".gov", ".gov.in")):
+        score += 3
     return score
+
+
+def _is_citable_url(url: str) -> bool:
+    """Do not present search-engine redirect pages as evidence citations."""
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(host)
+        and not host.endswith("duckduckgo.com")
+    )
+
+
+def _has_topic_anchor(question: str, source: EvidenceSource) -> bool:
+    """Require a named or specific term, not just a generic category match."""
+    anchors = _keywords(question) - GENERIC_TOPIC_TERMS
+    if not anchors:
+        return True
+    source_terms = _keywords(f"{source.title} {source.snippet}")
+    return bool(anchors & source_terms)
 
 
 def _select_relevant_sentences(
@@ -306,6 +337,44 @@ async def search_duckduckgo_web(
     return evidence
 
 
+async def search_tavily(
+    question: str,
+    *,
+    api_key: str,
+    client: httpx.AsyncClient,
+) -> list[EvidenceSource]:
+    """Retrieve ranked, citation-ready web excerpts from Tavily."""
+    try:
+        response = await client.post(
+            "https://api.tavily.com/search",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "query": question,
+                "search_depth": "advanced",
+                "max_results": 5,
+                "include_answer": False,
+                "include_raw_content": False,
+            },
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise ValueError(
+            f"Tavily search failed (HTTP {error.response.status_code}). "
+            "Check the Tavily API key and account usage."
+        ) from error
+    except httpx.RequestError as error:
+        raise ValueError(f"Could not reach Tavily: {error}") from error
+
+    evidence: list[EvidenceSource] = []
+    for result in response.json().get("results", []):
+        title = str(result.get("title", "")).strip()
+        url = str(result.get("url", "")).strip()
+        content = str(result.get("content", "")).strip()
+        if title and content and _is_citable_url(url):
+            evidence.append(EvidenceSource(title=title, url=url, snippet=content[:1_500]))
+    return evidence
+
+
 async def retrieve_web_evidence(
     question: str,
     *,
@@ -317,15 +386,35 @@ async def retrieve_web_evidence(
         follow_redirects=True,
         headers=DEFAULT_HEADERS,
     ) as client:
-        wikipedia_results = await search_wikipedia(question, client=client)
-        ddg_results = await search_duckduckgo(question, client=client)
-        web_results = await search_duckduckgo_web(question, client=client)
+        tavily_results = (
+            await search_tavily(question, api_key=settings.tavily_api_key, client=client)
+            if settings.tavily_api_key
+            else []
+        )
+        if tavily_results:
+            wikipedia_results: list[EvidenceSource] = []
+            ddg_results: list[EvidenceSource] = []
+            web_results: list[EvidenceSource] = []
+            official_results: list[EvidenceSource] = []
+        else:
+            wikipedia_results = await search_wikipedia(question, client=client)
+            ddg_results = await search_duckduckgo(question, client=client)
+            web_results = await search_duckduckgo_web(question, client=client)
+            official_results = await search_duckduckgo_web(
+                f'"{question}" official website',
+                client=client,
+            )
 
     merged: list[EvidenceSource] = []
     seen_titles: set[str] = set()
-    for source in [*wikipedia_results, *ddg_results, *web_results]:
+    for source in [*tavily_results, *official_results, *web_results, *wikipedia_results, *ddg_results]:
         key = _normalize(source.title)
-        if not source.snippet or key in seen_titles:
+        if (
+            not source.snippet
+            or not _is_citable_url(source.url)
+            or not _has_topic_anchor(question, source)
+            or key in seen_titles
+        ):
             continue
         seen_titles.add(key)
         merged.append(source)
@@ -339,7 +428,9 @@ async def retrieve_web_evidence(
         return []
 
     best_score = ranked[0][1]
-    minimum_score = max(1.0, best_score * 0.45)
+    # Keeping loose matches here caused unrelated pages (for example, a product
+    # page instead of a company's founder page) to appear as citations.
+    minimum_score = max(2.0, best_score * 0.70)
     focused = [source for source, score in ranked if score >= minimum_score]
     return focused[:2]
 

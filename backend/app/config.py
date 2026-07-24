@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     openrouter_api_key: str | None = None
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    tavily_api_key: str | None = None
     request_timeout_seconds: float = 30.0
 
 

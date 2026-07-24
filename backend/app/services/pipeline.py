@@ -3,24 +3,30 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 
 from app.config import Settings
-from app.schemas import AnalyzeRequest, AnalyzeResponse, LLMProvider, ModelAnalysis, VerificationMode
-from app.services.generator import generate_answer, provider_info
+from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, LLMProvider, ModelAnalysis, VerificationMode
+from app.services.generator import generate_answer, generate_correction, provider_info
+from app.services.documents import document_evidence
 from app.services.retrieval import retrieve_web_evidence
-from app.services.verifier import reliability_score, verify_claims
+from app.services.verifier import reliability_score, select_citations, verify_claims
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
-    if request.mode != VerificationMode.WEB:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"Verification mode '{request.mode.value}' is not available yet.",
-        )
-
-    evidence = (
-        await retrieve_web_evidence(request.question, settings=settings)
-        if request.verify
-        else []
-    )
+    evidence = []
+    if request.verify and request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID}:
+        if not request.document_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Upload a PDF before using document or hybrid verification.",
+            )
+        evidence.extend(document_evidence(request.document_id, request.question))
+    if request.verify and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}:
+        try:
+            evidence.extend(await retrieve_web_evidence(request.question, settings=settings))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
     selected = [request.provider]
     if request.provider == LLMProvider.COMPARE:
         selected = [
@@ -65,12 +71,28 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     supported = sum(1 for claim in claims if claim.status == "supported")
     uncertain = sum(1 for claim in claims if claim.status == "uncertain")
     unsupported = sum(1 for claim in claims if claim.status == "unsupported")
+    correction = None
+    if request.verify and evidence and unsupported:
+        try:
+            corrected_answer, _ = await generate_correction(
+                request.question,
+                evidence,
+                settings=settings,
+                provider=primary.provider,
+            )
+            correction = CorrectedAnswer(
+                answer=corrected_answer,
+                citations=select_citations(corrected_answer, evidence),
+            )
+        except ValueError:
+            # A correction is helpful but must never hide the original analysis result.
+            correction = None
 
     if not request.verify:
         message = "Answer generated without verification."
     elif not evidence:
         message = (
-            "No web evidence was retrieved. The answer could not be verified against sources."
+            "No evidence was retrieved. The answer could not be verified against sources."
         )
     else:
         message = (
@@ -91,5 +113,6 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         evidence=evidence,
         claims=claims,
         reliability_score=score,
+        correction=correction,
         comparisons=analyses if request.provider == LLMProvider.COMPARE else [],
     )

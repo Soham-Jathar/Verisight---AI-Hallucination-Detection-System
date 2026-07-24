@@ -79,6 +79,31 @@ async def generate_answer(
     raise ValueError(f"Unsupported provider: {provider.value}")
 
 
+async def generate_correction(
+    question: str,
+    evidence: list[EvidenceSource],
+    *,
+    settings: Settings,
+    provider: LLMProvider,
+) -> tuple[str, str]:
+    """Create a replacement answer constrained to the retrieved evidence."""
+    if provider == LLMProvider.EVIDENCE:
+        return build_evidence_answer(question, evidence), "retrieval-summary"
+    if provider == LLMProvider.GEMINI:
+        return await _generate_with_gemini(question, evidence, settings=settings, history=None, correction=True)
+    if provider == LLMProvider.GROQ:
+        return await _generate_with_openai_compatible(
+            question, evidence, api_key=settings.groq_api_key, base_url="https://api.groq.com/openai/v1",
+            model=settings.groq_model, settings=settings, history=None, correction=True,
+        )
+    if provider == LLMProvider.OPENROUTER:
+        return await _generate_with_openai_compatible(
+            question, evidence, api_key=settings.openrouter_api_key, base_url="https://openrouter.ai/api/v1",
+            model=settings.openrouter_model, settings=settings, history=None, correction=True,
+        )
+    raise ValueError(f"Unsupported provider: {provider.value}")
+
+
 def _evidence_block(evidence: list[EvidenceSource]) -> str:
     return "\n".join(
         f"- {source.title}: {source.snippet}" for source in evidence[:5]
@@ -115,21 +140,29 @@ async def _generate_with_openai_compatible(
     model: str,
     settings: Settings,
     history: list[ChatMessage] | None,
+    correction: bool = False,
 ) -> tuple[str, str]:
     if not api_key:
         raise ValueError("This provider has not been configured on the server.")
 
     evidence_block = _evidence_block(evidence)
 
+    instruction = (
+        "Write a concise corrected answer to the user's question. Use only the supplied evidence; "
+        "do not add facts from general knowledge. If the evidence cannot support an answer, say so plainly. "
+        "Do not mention the correction process, evidence, or citations."
+        if correction
+        else (
+            "You are a concise, factual assistant. Answer the user's latest question "
+            "directly using your general knowledge. The supplied evidence is useful "
+            "context, but do not mention it or refuse solely because it is incomplete. "
+            "Do not start with phrases such as 'Based on the provided evidence'."
+        )
+    )
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are a concise, factual assistant. Answer the user's latest question "
-                "directly using your general knowledge. The supplied evidence is useful "
-                "context, but do not mention it or refuse solely because it is incomplete. "
-                "Do not start with phrases such as 'Based on the provided evidence'."
-            ),
+            "content": instruction,
         },
         *[
             {"role": message.role, "content": message.content}
@@ -170,16 +203,25 @@ async def _generate_with_gemini(
     *,
     settings: Settings,
     history: list[ChatMessage] | None,
+    correction: bool = False,
 ) -> tuple[str, str]:
     if not settings.gemini_api_key:
         raise ValueError("This provider has not been configured on the server.")
 
+    instruction = (
+        "Write a concise corrected answer to the user's question. Use only the supplied evidence; "
+        "do not add facts from general knowledge. If the evidence cannot support an answer, say so plainly. "
+        "Do not mention the correction process, evidence, or citations."
+        if correction
+        else (
+            "You are a concise, factual assistant. Answer the user's question directly using "
+            "your general knowledge. The supplied evidence is useful context, but do not mention "
+            "it or refuse solely because it is incomplete. Do not start with phrases such as "
+            "'Based on the provided evidence'."
+        )
+    )
     prompt = (
-        "You are a concise, factual assistant. Answer the user's question directly using "
-        "your general knowledge. The supplied evidence is useful context, but do not mention "
-        "it or refuse solely because it is incomplete. Do not start with phrases such as "
-        "'Based on the provided evidence'.\n\n"
-        f"Conversation so far:\n{_history_block(history)}\n\n"
+        f"{instruction}\n\nConversation so far:\n{_history_block(history)}\n\n"
         f"Latest question: {question}\n\nEvidence context:\n{_evidence_block(evidence)}"
     )
     timeout = httpx.Timeout(settings.request_timeout_seconds)
