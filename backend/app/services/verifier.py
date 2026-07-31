@@ -35,6 +35,28 @@ def _evidence_match(claim: str, source: EvidenceSource) -> float:
     return 0.8 * coverage + 0.2 * _token_overlap(claim, evidence_text)
 
 
+def _lexical_support(claim: str, evidence: list[EvidenceSource]) -> float:
+    """Conservative fallback for an NLI-neutral claim quoted almost verbatim."""
+    claim_tokens = {
+        token for token in re.findall(r"[a-z0-9]+", _normalize(claim)) if len(token) > 2
+    }
+    if not claim_tokens:
+        return 0.0
+
+    numeric_claim_tokens = {
+        token for token in claim_tokens
+        if token.isdigit() or token in {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}
+    }
+    best = 0.0
+    for source in evidence:
+        evidence_tokens = set(re.findall(r"[a-z0-9]+", _normalize(f"{source.title} {source.snippet}")))
+        if numeric_claim_tokens and not numeric_claim_tokens <= evidence_tokens:
+            continue
+        coverage = len(claim_tokens & evidence_tokens) / len(claim_tokens)
+        best = max(best, coverage)
+    return best
+
+
 def _claim_evidence_excerpt(claim: str, source: EvidenceSource) -> str:
     """Give NLI a focused premise instead of a long search-result paragraph."""
     sentences = [
@@ -131,6 +153,10 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         return "supported", best_entailment, "An NLI model found the claim entailed by retrieved evidence."
     if entailment_votes and contradiction_votes:
         return "uncertain", max(best_entailment, best_contradiction), "Retrieved sources do not agree strongly enough to verify this claim."
+    lexical_support = _lexical_support(claim, evidence)
+    if lexical_support >= 0.78 and not contradiction_votes:
+        confidence = min(0.92, 0.55 + 0.45 * lexical_support)
+        return "supported", confidence, "Retrieved evidence closely matches the factual content of this claim."
     return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim."
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from html import unescape
 import re
 from urllib.parse import parse_qs, unquote, urlparse
@@ -39,6 +40,32 @@ def _subject_query(question: str) -> str:
     return subject or question
 
 
+def _is_identity_question(question: str) -> bool:
+    return bool(re.match(r"\s*who\s+is\s+.+", question, flags=re.IGNORECASE))
+
+
+def _identity_title_bonus(question: str, title: str) -> float:
+    """Strongly prefer the page about the named person over a namesake."""
+    if not _is_identity_question(question):
+        return 0.0
+    subject_terms = _keywords(_subject_query(question))
+    title_terms = _keywords(title)
+    if not subject_terms or not title_terms:
+        return 0.0
+    if subject_terms == title_terms or (
+        len(subject_terms) == len(title_terms)
+        and all(
+            any(SequenceMatcher(None, subject, candidate).ratio() >= 0.86 for candidate in title_terms)
+            for subject in subject_terms
+        )
+    ):
+        return 10.0
+    # A one-word query such as "Ramanujan" can validly lead to a full name.
+    if len(subject_terms) == 1 and subject_terms <= title_terms:
+        return 4.0
+    return 0.0
+
+
 def _strip_html(text: str) -> str:
     return unescape(re.sub(r"<[^>]+>", "", text)).strip()
 
@@ -69,7 +96,7 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
     source_terms = _keywords(f"{source.title} {source.snippet}")
     title_overlap = len(question_terms & title_terms)
     source_overlap = len(question_terms & source_terms)
-    score = 2 * title_overlap + source_overlap
+    score = 2 * title_overlap + source_overlap + _identity_title_bonus(question, source.title)
 
     requested_years = set(re.findall(r"\b(?:19|20)\d{2}\b", question))
     source_years = set(re.findall(r"\b(?:19|20)\d{2}\b", f"{source.title} {source.snippet}"))
@@ -81,6 +108,12 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
     host = urlparse(source.url).netloc.lower()
     if host.endswith((".ac.in", ".edu", ".edu.in", ".gov", ".gov.in")):
         score += 3
+    subject_terms = _keywords(_subject_query(question))
+    if _is_identity_question(question) and subject_terms:
+        # Credible profile pages sometimes include the organisation in the title
+        # (for example, a NASA astronaut profile).
+        if subject_terms <= title_terms and host.endswith(("nasa.gov", ".gov", ".gov.in")):
+            score += 8
     # Encyclopaedia entries are a useful reliable fallback for broad biography
     # questions when no primary source exists.
     if host.endswith("wikipedia.org"):
@@ -193,6 +226,8 @@ async def search_wikipedia(
     limit: int = 8,
 ) -> list[EvidenceSource]:
     search_query = _subject_query(question)
+    if _is_identity_question(question):
+        search_query = f"{search_query} biography"
     capital_match = re.search(r"\bcapital of\s+(.+?)\??$", question, flags=re.IGNORECASE)
     ceo_match = re.search(r"\bceo of\s+(.+?)\??$", question, flags=re.IGNORECASE)
     creator_match = re.search(r"\bwho created\s+(.+?)\??$", question, flags=re.IGNORECASE)
@@ -226,7 +261,9 @@ async def search_wikipedia(
     def page_score(page: dict) -> tuple[int, int]:
         title_terms = _keywords(page.get("title", ""))
         return (
-            len(question_terms & title_terms) + 4 * len(year_terms & title_terms),
+            int(_identity_title_bonus(question, page.get("title", "")))
+            + len(question_terms & title_terms)
+            + 4 * len(year_terms & title_terms),
             len(year_terms & title_terms),
         )
 
@@ -421,6 +458,8 @@ async def retrieve_web_evidence(
         headers=DEFAULT_HEADERS,
     ) as client:
         search_query = _subject_query(question)
+        if _is_identity_question(question):
+            search_query = f"{search_query} biography"
         tavily_results = (
             await search_tavily(search_query, api_key=settings.tavily_api_key, client=client)
             if settings.tavily_api_key
