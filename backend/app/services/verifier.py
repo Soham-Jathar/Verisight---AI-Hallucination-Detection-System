@@ -180,12 +180,26 @@ def extract_claims(answer: str) -> list[str]:
     sentences = re.split(r"(?<=[.!?])\s+", answer.strip())
     boilerplate = re.compile(r"^(?:based on (?:the )?(?:provided|retrieved) evidence,?\s*)", flags=re.IGNORECASE)
     claims: list[str] = []
+    last_person: str | None = None
+    person_subject = re.compile(
+        r"^([A-Z][A-Za-z.'-]*(?:\s+(?:[A-Z][A-Za-z.'-]*|van|von|de|da|del)){1,4})\s+"
+        r"(?:is|was|created|developed|released|designed|founded|led|served|became|worked)\b"
+    )
     for sentence in sentences:
         cleaned = boilerplate.sub("", sentence).strip()
         # Split only explicit clause boundaries. This complements the LLM prompt
         # without breaking natural lists such as "astronaut, engineer, and pilot".
         clauses = re.split(r"\s*;\s*|,?\s+and\s+(?=(?:he|she|they|it)\b)", cleaned, flags=re.IGNORECASE)
-        claims.extend(clause.strip() for clause in clauses if len(clause.strip()) >= 20)
+        for clause in clauses:
+            claim = clause.strip()
+            if last_person and re.match(r"^(?:he|she)\b", claim, flags=re.IGNORECASE):
+                claim = re.sub(r"^(?:he|she)\b", last_person, claim, flags=re.IGNORECASE)
+            if len(claim) < 20:
+                continue
+            match = person_subject.match(claim)
+            if match:
+                last_person = match.group(1)
+            claims.append(claim)
     return claims[:6] or [answer.strip()]
 
 

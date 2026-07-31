@@ -16,7 +16,10 @@ def test_extract_claims_splits_sentences() -> None:
 def test_extract_claims_splits_explicit_pronoun_clause() -> None:
     answer = "Bjarne Stroustrup created C++, and he developed it at Bell Labs."
     claims = extract_claims(answer)
-    assert claims == ["Bjarne Stroustrup created C++", "he developed it at Bell Labs."]
+    assert claims == [
+        "Bjarne Stroustrup created C++",
+        "Bjarne Stroustrup developed it at Bell Labs.",
+    ]
 
 
 def test_verification_sources_exclude_unrelated_pages() -> None:

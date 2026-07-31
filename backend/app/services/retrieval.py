@@ -85,6 +85,22 @@ def _research_query(question: str) -> str:
     return f"{subject} biography" if _is_identity_question(question) else question
 
 
+def _relation_title_bonus(question: str, title: str) -> float:
+    """Prefer a canonical page for the subject of a creator-style question."""
+    relation = _relation_parts(question)
+    if not relation:
+        return 0.0
+    subject_terms = _keywords(relation[0])
+    title_terms = _keywords(title)
+    if not subject_terms or not subject_terms <= title_terms:
+        return 0.0
+    extras = title_terms - subject_terms
+    if not extras:
+        return 10.0
+    canonical_descriptors = {"program", "programm", "language", "software", "system"}
+    return 8.0 if extras <= canonical_descriptors else 0.0
+
+
 def _identity_title_bonus(question: str, title: str) -> float:
     """Strongly prefer the page about the named person over a namesake."""
     if not _is_identity_question(question):
@@ -141,7 +157,12 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
     source_terms = _keywords(f"{source.title} {source.snippet}")
     title_overlap = len(question_terms & title_terms)
     source_overlap = len(question_terms & source_terms)
-    score = 2 * title_overlap + source_overlap + _identity_title_bonus(question, source.title)
+    score = (
+        2 * title_overlap
+        + source_overlap
+        + _identity_title_bonus(question, source.title)
+        + _relation_title_bonus(question, source.title)
+    )
 
     requested_years = set(re.findall(r"\b(?:19|20)\d{2}\b", question))
     source_years = set(re.findall(r"\b(?:19|20)\d{2}\b", f"{source.title} {source.snippet}"))
@@ -308,7 +329,10 @@ async def search_wikipedia(
     def page_score(page: dict) -> tuple[int, int]:
         title_terms = _keywords(page.get("title", ""))
         return (
-            int(_identity_title_bonus(question, page.get("title", "")))
+            int(
+                _identity_title_bonus(question, page.get("title", ""))
+                + _relation_title_bonus(question, page.get("title", ""))
+            )
             + len(question_terms & title_terms)
             + 4 * len(year_terms & title_terms),
             len(year_terms & title_terms),
