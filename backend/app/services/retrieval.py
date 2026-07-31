@@ -108,6 +108,27 @@ def _has_topic_anchor(question: str, source: EvidenceSource) -> bool:
     return bool(anchors & source_terms)
 
 
+def _is_namesake_institution(question: str, source: EvidenceSource) -> bool:
+    """Reject organisations merely named after the person being researched.
+
+    A result such as "Kalpana Chawla Government Medical College" contains all
+    of the person's name, but is not biographical evidence about the astronaut.
+    This safeguard only applies to identity questions about a non-institution.
+    """
+    subject = _subject_query(question)
+    subject_terms = _keywords(subject)
+    if not subject_terms or subject_terms & GENERIC_TOPIC_TERMS:
+        return False
+
+    title_terms = _keywords(source.title)
+    host = urlparse(source.url).netloc.lower()
+    return (
+        subject_terms <= title_terms
+        and bool(title_terms & GENERIC_TOPIC_TERMS)
+        and not host.endswith("wikipedia.org")
+    )
+
+
 def _select_relevant_sentences(
     text: str,
     question: str,
@@ -430,6 +451,7 @@ async def retrieve_web_evidence(
             not source.snippet
             or not _is_citable_url(source.url)
             or not _has_topic_anchor(question, source)
+            or _is_namesake_institution(question, source)
             or key in seen_titles
         ):
             continue
