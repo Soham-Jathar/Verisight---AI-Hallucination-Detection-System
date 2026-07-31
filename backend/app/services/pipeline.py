@@ -5,7 +5,7 @@ import asyncio
 from fastapi import HTTPException, status
 
 from app.config import Settings
-from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, LLMProvider, ModelAnalysis, VerificationMode
+from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, EvidenceSource, LLMProvider, ModelAnalysis, VerificationMode
 from app.services.generator import generate_answer, generate_correction, provider_info
 from app.services.documents import document_evidence
 from app.services.retrieval import retrieve_web_evidence
@@ -19,13 +19,21 @@ from app.services.verifier import (
 
 def _merge_evidence(*groups):
     merged = []
-    seen = set()
+    indexes = {}
     for group in groups:
         for source in group:
             key = source.url or source.title.lower()
-            if key in seen:
+            if key in indexes:
+                index = indexes[key]
+                existing = merged[index]
+                if source.snippet not in existing.snippet:
+                    merged[index] = EvidenceSource(
+                        title=existing.title,
+                        url=existing.url,
+                        snippet=f"{existing.snippet} {source.snippet}"[:3_000],
+                    )
                 continue
-            seen.add(key)
+            indexes[key] = len(merged)
             merged.append(source)
     return merged
 
