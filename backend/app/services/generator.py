@@ -156,7 +156,9 @@ async def _generate_with_openai_compatible(
             "You are a concise, factual assistant. Answer the user's latest question "
             "directly using your general knowledge. The supplied evidence is useful "
             "context, but do not mention it or refuse solely because it is incomplete. "
-            "Do not start with phrases such as 'Based on the provided evidence'."
+            "Do not start with phrases such as 'Based on the provided evidence'. "
+            "Use short sentences with one independently verifiable fact per sentence; "
+            "do not combine a role, date, achievement, and event into one sentence."
         )
     )
     messages = [
@@ -217,7 +219,9 @@ async def _generate_with_gemini(
             "You are a concise, factual assistant. Answer the user's question directly using "
             "your general knowledge. The supplied evidence is useful context, but do not mention "
             "it or refuse solely because it is incomplete. Do not start with phrases such as "
-            "'Based on the provided evidence'."
+            "'Based on the provided evidence'. Use short sentences with one independently "
+            "verifiable fact per sentence; do not combine a role, date, achievement, and event "
+            "into one sentence."
         )
     )
     prompt = (

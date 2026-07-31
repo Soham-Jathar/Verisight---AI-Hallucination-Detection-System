@@ -163,7 +163,13 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
 def extract_claims(answer: str) -> list[str]:
     sentences = re.split(r"(?<=[.!?])\s+", answer.strip())
     boilerplate = re.compile(r"^(?:based on (?:the )?(?:provided|retrieved) evidence,?\s*)", flags=re.IGNORECASE)
-    claims = [boilerplate.sub("", sentence).strip() for sentence in sentences if len(sentence.strip()) >= 20]
+    claims: list[str] = []
+    for sentence in sentences:
+        cleaned = boilerplate.sub("", sentence).strip()
+        # Split only explicit clause boundaries. This complements the LLM prompt
+        # without breaking natural lists such as "astronaut, engineer, and pilot".
+        clauses = re.split(r"\s*;\s*|,?\s+and\s+(?=(?:he|she|they|it)\b)", cleaned, flags=re.IGNORECASE)
+        claims.extend(clause.strip() for clause in clauses if len(clause.strip()) >= 20)
     return claims[:6] or [answer.strip()]
 
 
