@@ -28,6 +28,7 @@ class AnalyzeRequest(BaseModel):
     mode: VerificationMode = VerificationMode.WEB
     provider: LLMProvider = LLMProvider.EVIDENCE
     verify: bool = True
+    measure_uncertainty: bool = False
     history: list[ChatMessage] = Field(default_factory=list, max_length=12)
     document_id: str | None = Field(default=None, max_length=80)
 
@@ -83,6 +84,7 @@ class AnalyzeResponse(BaseModel):
     evidence: list[EvidenceSource] = Field(default_factory=list)
     claims: list[ClaimAssessment] = Field(default_factory=list)
     reliability_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    uncertainty_score: float | None = Field(default=None, ge=0.0, le=1.0)
     correction: CorrectedAnswer | None = None
     comparisons: list[ModelAnalysis] = Field(default_factory=list)
 

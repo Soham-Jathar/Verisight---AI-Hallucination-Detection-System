@@ -15,9 +15,10 @@ function createConversation() {
 function VerificationCard({ result }) {
   if (!result?.claims?.length) return null
   const reliability = Math.round((result.reliability_score ?? 0) * 100)
+  const uncertainty = result.uncertainty_score == null ? null : Math.round(result.uncertainty_score * 100)
 
   return <details className="verification-card">
-    <summary><span className="verification-dot"></span>Verification available<strong>{reliability}% reliable</strong></summary>
+    <summary><span className="verification-dot"></span>Verification available<strong>{reliability}% reliable{uncertainty !== null ? ` · ${uncertainty}% uncertainty` : ''}</strong></summary>
     <div className="verification-content">
       <p className="verification-summary">{result.message}</p>
       <div className="claim-list">
@@ -62,6 +63,7 @@ function App() {
   const [providers, setProviders] = useState([])
   const [apiStatus, setApiStatus] = useState('checking')
   const [verifyEnabled, setVerifyEnabled] = useState(true)
+  const [uncertaintyEnabled, setUncertaintyEnabled] = useState(false)
   const [evidenceMode, setEvidenceMode] = useState('web')
   const [document, setDocument] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -149,7 +151,7 @@ function App() {
     setLoading(true)
     setError('')
     try {
-      const response = await fetch(`${API_URL}/api/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, provider, mode: evidenceMode, verify: verifyEnabled, history, document_id: document?.id ?? null }) })
+      const response = await fetch(`${API_URL}/api/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, provider, mode: evidenceMode, verify: verifyEnabled, measure_uncertainty: uncertaintyEnabled, history, document_id: document?.id ?? null }) })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail ?? 'The analysis request failed.')
       const assistantMessage = { id: crypto.randomUUID(), role: 'assistant', content: payload.answer ?? 'I could not generate an answer.', model: payload.model, verification: verifyEnabled ? payload : null }
@@ -175,6 +177,7 @@ function App() {
           <label className="provider-select"><span>Model</span><select value={provider} onChange={(event) => setProvider(event.target.value)}>{providers.map((item) => <option key={item.id} value={item.id} disabled={!item.configured}>{item.label}{item.configured ? '' : ' (add key)'}</option>)}</select></label>
           <label className="provider-select"><span>Evidence</span><select value={evidenceMode} onChange={(event) => setEvidenceMode(event.target.value)}><option value="web">Web</option><option value="document" disabled={!document}>PDF</option><option value="hybrid" disabled={!document}>Hybrid</option></select></label>
           <label className="verify-toggle"><input type="checkbox" checked={verifyEnabled} onChange={(event) => setVerifyEnabled(event.target.checked)} /><span></span>Verify</label>
+          <label className="verify-toggle"><input type="checkbox" checked={uncertaintyEnabled} onChange={(event) => setUncertaintyEnabled(event.target.checked)} /><span></span>Uncertainty</label>
         </div>
       </header>
       <section className="message-thread" aria-live="polite">
@@ -190,7 +193,7 @@ function App() {
           <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Message VeriSight..." aria-label="Message VeriSight" rows="1" />
           <button className="send-button" type="submit" disabled={loading || apiStatus !== 'online' || draft.trim().length < 3}>{loading ? 'Working...' : 'Send'}</button>
         </div>
-        <p>{verifyEnabled ? `Verification is on: using ${evidenceMode === 'document' ? 'your PDF' : evidenceMode === 'hybrid' ? 'web and your PDF' : 'web evidence'}.` : 'Verification is off: this response will not receive a reliability score.'}</p>
+        <p>{verifyEnabled ? `Verification is on: using ${evidenceMode === 'document' ? 'your PDF' : evidenceMode === 'hybrid' ? 'web and your PDF' : 'web evidence'}.${uncertaintyEnabled ? ' Uncertainty uses two additional answer samples.' : ''}` : 'Verification is off: this response will not receive a reliability score.'}</p>
         {error && <strong className="error">{error}</strong>}
       </form>
     </section>

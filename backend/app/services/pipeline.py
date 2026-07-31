@@ -9,6 +9,7 @@ from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, Eviden
 from app.services.generator import generate_answer, generate_correction, provider_info
 from app.services.documents import document_evidence
 from app.services.retrieval import retrieve_web_evidence
+from app.services.uncertainty import estimate_uncertainty
 from app.services.verifier import (
     reliability_score,
     select_citations,
@@ -142,6 +143,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     uncertain = sum(1 for claim in claims if claim.status == "uncertain")
     unsupported = sum(1 for claim in claims if claim.status == "unsupported")
     correction = None
+    uncertainty_score = None
     visible_evidence = select_verification_sources(claims, primary_evidence) if request.verify else []
     if request.verify and primary_evidence and unsupported:
         try:
@@ -159,6 +161,16 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             # A correction is helpful but must never hide the original analysis result.
             correction = None
 
+    if request.measure_uncertainty:
+        uncertainty_score = await estimate_uncertainty(
+            request.question,
+            answer,
+            primary_evidence,
+            settings=settings,
+            provider=primary.provider,
+            history=request.history,
+        )
+
     if not request.verify:
         message = "Answer generated without verification."
     elif not primary_evidence:
@@ -172,6 +184,8 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             f"Reliability score: {score:.2f}. "
             f"Generation source: {primary.provider.value}."
         )
+        if uncertainty_score is not None:
+            message += f" Estimated uncertainty: {uncertainty_score:.2f}."
 
     return AnalyzeResponse(
         question=request.question,
@@ -184,6 +198,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         evidence=visible_evidence,
         claims=claims,
         reliability_score=score,
+        uncertainty_score=uncertainty_score,
         correction=correction,
         comparisons=analyses if request.provider == LLMProvider.COMPARE else [],
     )

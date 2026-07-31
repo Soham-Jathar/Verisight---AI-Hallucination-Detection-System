@@ -51,11 +51,12 @@ async def generate_answer(
     settings: Settings,
     provider: LLMProvider,
     history: list[ChatMessage] | None = None,
+    temperature: float = 0.2,
 ) -> tuple[str, str]:
     if provider == LLMProvider.EVIDENCE:
         return build_evidence_answer(question, evidence), "retrieval-summary"
     if provider == LLMProvider.GEMINI:
-        return await _generate_with_gemini(question, evidence, settings=settings, history=history)
+        return await _generate_with_gemini(question, evidence, settings=settings, history=history, temperature=temperature)
     if provider == LLMProvider.GROQ:
         return await _generate_with_openai_compatible(
             question,
@@ -65,6 +66,7 @@ async def generate_answer(
             model=settings.groq_model,
             settings=settings,
             history=history,
+            temperature=temperature,
         )
     if provider == LLMProvider.OPENROUTER:
         return await _generate_with_openai_compatible(
@@ -75,6 +77,7 @@ async def generate_answer(
             model=settings.openrouter_model,
             settings=settings,
             history=history,
+            temperature=temperature,
         )
     raise ValueError(f"Unsupported provider: {provider.value}")
 
@@ -141,6 +144,7 @@ async def _generate_with_openai_compatible(
     settings: Settings,
     history: list[ChatMessage] | None,
     correction: bool = False,
+    temperature: float = 0.2,
 ) -> tuple[str, str]:
     if not api_key:
         raise ValueError("This provider has not been configured on the server.")
@@ -177,7 +181,7 @@ async def _generate_with_openai_compatible(
     ]
     payload = {
         "model": model,
-        "temperature": 0.2,
+        "temperature": temperature,
         "messages": messages,
     }
 
@@ -206,6 +210,7 @@ async def _generate_with_gemini(
     settings: Settings,
     history: list[ChatMessage] | None,
     correction: bool = False,
+    temperature: float = 0.2,
 ) -> tuple[str, str]:
     if not settings.gemini_api_key:
         raise ValueError("This provider has not been configured on the server.")
@@ -237,7 +242,10 @@ async def _generate_with_gemini(
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 url,
-                json={"contents": [{"parts": [{"text": prompt}]}]},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": temperature},
+                },
             )
             response.raise_for_status()
             data = response.json()
