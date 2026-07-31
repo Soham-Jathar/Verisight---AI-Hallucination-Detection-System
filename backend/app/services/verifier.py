@@ -105,10 +105,32 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
     best_contradiction = max(score["contradiction"] for score in scores)
     best_neutral = max(score["neutral"] for score in scores)
 
-    if best_contradiction >= 0.55 and best_contradiction > best_entailment:
+    entailment_votes = sum(
+        score["entailment"] >= 0.55 and score["entailment"] > score["contradiction"]
+        for score in scores
+    )
+    contradiction_votes = sum(
+        score["contradiction"] >= 0.55 and score["contradiction"] > score["entailment"]
+        for score in scores
+    )
+
+    # A single mismatched source must not turn a factual answer into a false
+    # hallucination. With multiple sources, require agreement before returning
+    # the strongest (unsupported) verdict.
+    if (
+        best_contradiction >= 0.55
+        and contradiction_votes > entailment_votes
+        and (len(scores) == 1 or contradiction_votes >= 2)
+    ):
         return "unsupported", best_contradiction, "An NLI model found the claim contradicted by retrieved evidence."
-    if best_entailment >= 0.55 and best_entailment >= best_neutral:
+    if (
+        best_entailment >= 0.55
+        and entailment_votes > contradiction_votes
+        and best_entailment >= best_neutral
+    ):
         return "supported", best_entailment, "An NLI model found the claim entailed by retrieved evidence."
+    if entailment_votes and contradiction_votes:
+        return "uncertain", max(best_entailment, best_contradiction), "Retrieved sources do not agree strongly enough to verify this claim."
     return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim."
 
 
