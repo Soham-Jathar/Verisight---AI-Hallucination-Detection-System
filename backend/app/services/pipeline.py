@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import HTTPException, status
 
 from app.config import Settings
@@ -7,7 +9,49 @@ from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, LLMPro
 from app.services.generator import generate_answer, generate_correction, provider_info
 from app.services.documents import document_evidence
 from app.services.retrieval import retrieve_web_evidence
-from app.services.verifier import reliability_score, select_citations, verify_claims
+from app.services.verifier import (
+    reliability_score,
+    select_citations,
+    select_verification_sources,
+    verify_claims,
+)
+
+
+def _merge_evidence(*groups):
+    merged = []
+    seen = set()
+    for group in groups:
+        for source in group:
+            key = source.url or source.title.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(source)
+    return merged
+
+
+async def _expand_uncertain_claim_evidence(
+    question: str,
+    claims,
+    evidence,
+    *,
+    settings: Settings,
+):
+    """Retrieve focused evidence only for claims the first pass could not settle."""
+    uncertain = [claim.claim for claim in claims if claim.status == "uncertain"][:4]
+    if not uncertain:
+        return evidence
+
+    searches = [
+        retrieve_web_evidence(
+            f"{question} Factual claim to verify: {claim}",
+            settings=settings,
+        )
+        for claim in uncertain
+    ]
+    results = await asyncio.gather(*searches, return_exceptions=True)
+    successful = [result for result in results if isinstance(result, list)]
+    return _merge_evidence(evidence, *successful)
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
@@ -41,18 +85,36 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             )
 
     analyses: list[ModelAnalysis] = []
-    for provider in selected:
+    primary_evidence = list(evidence)
+    shared_evidence = list(evidence)
+    for index, provider in enumerate(selected):
         try:
             answer, model = await generate_answer(
                 request.question,
-                evidence,
+                shared_evidence,
                 settings=settings,
                 provider=provider,
                 history=request.history,
             )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        claims = verify_claims(answer, evidence) if request.verify else []
+        analysis_evidence = list(shared_evidence)
+        claims = verify_claims(answer, analysis_evidence) if request.verify else []
+        if (
+            request.verify
+            and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}
+            and any(claim.status == "uncertain" for claim in claims)
+        ):
+            analysis_evidence = await _expand_uncertain_claim_evidence(
+                request.question,
+                claims,
+                analysis_evidence,
+                settings=settings,
+            )
+            claims = verify_claims(answer, analysis_evidence)
+        if index == 0:
+            primary_evidence = analysis_evidence
+            shared_evidence = analysis_evidence
         analyses.append(
             ModelAnalysis(
                 provider=provider,
@@ -72,17 +134,18 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     uncertain = sum(1 for claim in claims if claim.status == "uncertain")
     unsupported = sum(1 for claim in claims if claim.status == "unsupported")
     correction = None
-    if request.verify and evidence and unsupported:
+    visible_evidence = select_verification_sources(claims, primary_evidence) if request.verify else []
+    if request.verify and primary_evidence and unsupported:
         try:
             corrected_answer, _ = await generate_correction(
                 request.question,
-                evidence,
+                primary_evidence,
                 settings=settings,
                 provider=primary.provider,
             )
             correction = CorrectedAnswer(
                 answer=corrected_answer,
-                citations=select_citations(corrected_answer, evidence),
+                citations=select_citations(corrected_answer, primary_evidence),
             )
         except ValueError:
             # A correction is helpful but must never hide the original analysis result.
@@ -90,13 +153,13 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
 
     if not request.verify:
         message = "Answer generated without verification."
-    elif not evidence:
+    elif not primary_evidence:
         message = (
             "No evidence was retrieved. The answer could not be verified against sources."
         )
     else:
         message = (
-            f"Analyzed {len(claims)} claim(s) using {len(evidence)} evidence source(s). "
+            f"Analyzed {len(claims)} claim(s) using {len(visible_evidence)} evidence source(s). "
             f"Supported: {supported}, uncertain: {uncertain}, unsupported: {unsupported}. "
             f"Reliability score: {score:.2f}. "
             f"Generation source: {primary.provider.value}."
@@ -110,7 +173,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         message=message,
         answer=answer,
         model=primary.model,
-        evidence=evidence,
+        evidence=visible_evidence,
         claims=claims,
         reliability_score=score,
         correction=correction,

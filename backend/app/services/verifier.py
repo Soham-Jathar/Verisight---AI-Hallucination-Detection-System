@@ -79,6 +79,22 @@ def _claim_evidence_excerpt(claim: str, source: EvidenceSource) -> str:
     return f"{source.title}. {' '.join(selected)}"
 
 
+def _claim_evidence(
+    claim: str,
+    evidence: list[EvidenceSource],
+    *,
+    limit: int = 2,
+) -> list[EvidenceSource]:
+    """Keep unrelated global sources out of an individual NLI decision."""
+    ranked = sorted(
+        ((_evidence_match(claim, source), source) for source in evidence),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    focused = [source for score, source in ranked if score >= 0.18]
+    return focused[:limit] or ([ranked[0][1]] if ranked else [])
+
+
 @lru_cache
 def _nli_model():
     """Load once, on the first verified answer instead of during API startup."""
@@ -187,13 +203,42 @@ def _fallback_assessment(claim: str, evidence: list[EvidenceSource], reason: str
 def verify_claims(answer: str, evidence: list[EvidenceSource]) -> list[ClaimAssessment]:
     claims = extract_claims(answer)
     try:
-        return [
-            ClaimAssessment(claim=claim, status=status, confidence=round(confidence, 2), rationale=rationale)
-            for claim in claims
-            for status, confidence, rationale in [_nli_verdict(claim, evidence)]
-        ]
+        assessments: list[ClaimAssessment] = []
+        for claim in claims:
+            focused_evidence = _claim_evidence(claim, evidence)
+            status, confidence, rationale = _nli_verdict(claim, focused_evidence)
+            assessments.append(
+                ClaimAssessment(
+                    claim=claim,
+                    status=status,
+                    confidence=round(confidence, 2),
+                    rationale=rationale,
+                )
+            )
+        return assessments
     except NLIUnavailable as exc:
-        return [_fallback_assessment(claim, evidence, str(exc)) for claim in claims]
+        return [
+            _fallback_assessment(claim, _claim_evidence(claim, evidence), str(exc))
+            for claim in claims
+        ]
+
+
+def select_verification_sources(
+    claims: list[ClaimAssessment],
+    evidence: list[EvidenceSource],
+    *,
+    limit: int = 4,
+) -> list[EvidenceSource]:
+    """Show only evidence that was materially relevant to at least one claim."""
+    best_by_url: dict[str, tuple[float, EvidenceSource]] = {}
+    for assessment in claims:
+        for source in _claim_evidence(assessment.claim, evidence):
+            score = _evidence_match(assessment.claim, source)
+            previous = best_by_url.get(source.url)
+            if previous is None or score > previous[0]:
+                best_by_url[source.url] = (score, source)
+    ranked = sorted(best_by_url.values(), key=lambda item: item[0], reverse=True)
+    return [source for score, source in ranked[:limit] if score >= 0.18]
 
 
 def select_citations(answer: str, evidence: list[EvidenceSource], *, limit: int = 2) -> list[EvidenceSource]:
