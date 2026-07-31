@@ -19,6 +19,7 @@
 .correction-label { margin: 0 0 6px !important; color: #8ce1ae !important; font: 10px 'DM Mono', monospace !important; text-transform: uppercase; letter-spacing: .45px; }
 .correction-answer { margin: 0 !important; color: #e4f8eb !important; font-size: 13px !important; line-height: 1.55 !important; white-space: pre-wrap; }
 .correction-citations { margin-top: 10px; }
+.claim small { display: block; margin-top: 4px; color: #7081a3; font-size: 10px; line-height: 1.4; }
 .composer-row { display: flex; align-items: flex-end; gap: 8px; }
 .composer .composer-row textarea { flex: 1; min-width: 0; width: auto; padding: 14px 15px 12px; }
 .composer .composer-row button { position: static; }
