@@ -28,11 +28,41 @@ GENERIC_TOPIC_TERMS = {
     "college", "engineer", "university", "school", "company", "organisation",
     "organization", "institution", "hospital", "research", "centre", "center",
     "private", "public", "located", "establish", "affiliate", "approve",
+    "creator", "creat", "inventor", "invent", "designer", "design", "founder", "found",
 }
+
+
+def _relation_parts(question: str) -> tuple[str, str] | None:
+    """Return (subject, relationship) for questions such as creator of C++."""
+    noun_match = re.search(
+        r"\bwho\s+(?:is|was)\s+the\s+(creator|inventor|designer|founder)\s+of\s+(.+?)[?!.\s]*$",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if noun_match:
+        return noun_match.group(2).strip(), noun_match.group(1).lower()
+
+    verb_match = re.search(
+        r"\bwho\s+(created|invented|designed|founded)\s+(.+?)[?!.\s]*$",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if verb_match:
+        relationship = {
+            "created": "creator",
+            "invented": "inventor",
+            "designed": "designer",
+            "founded": "founder",
+        }[verb_match.group(1).lower()]
+        return verb_match.group(2).strip(), relationship
+    return None
 
 
 def _subject_query(question: str) -> str:
     """Turn conversational identity questions into an entity-focused search."""
+    relation = _relation_parts(question)
+    if relation:
+        return relation[0]
     match = re.match(r"\s*who\s+is\s+(.+?)[?!.\s]*$", question, flags=re.IGNORECASE)
     if not match:
         return question
@@ -41,7 +71,18 @@ def _subject_query(question: str) -> str:
 
 
 def _is_identity_question(question: str) -> bool:
-    return bool(re.match(r"\s*who\s+is\s+.+", question, flags=re.IGNORECASE))
+    return _relation_parts(question) is None and bool(
+        re.match(r"\s*who\s+is\s+.+", question, flags=re.IGNORECASE)
+    )
+
+
+def _research_query(question: str) -> str:
+    relation = _relation_parts(question)
+    if relation:
+        subject, relationship = relation
+        return f'"{subject}" {relationship}'
+    subject = _subject_query(question)
+    return f"{subject} biography" if _is_identity_question(question) else question
 
 
 def _identity_title_bonus(question: str, title: str) -> float:
@@ -82,9 +123,13 @@ def _stem(token: str) -> str:
 
 
 def _keywords(text: str) -> set[str]:
+    normalized = _normalize(text)
+    # Preserve meaningful programming-language symbols that the normal word
+    # tokenizer would otherwise reduce to a single discarded letter.
+    normalized = normalized.replace("c++", "cplusplus").replace("c#", "csharp").replace(".net", "dotnet")
     return {
         _stem(token)
-        for token in re.findall(r"[a-z0-9]+", _normalize(text))
+        for token in re.findall(r"[a-z0-9]+", normalized)
         if len(token) > 2 and token not in STOP_WORDS
     }
 
@@ -134,10 +179,14 @@ def _is_citable_url(url: str) -> bool:
 
 def _has_topic_anchor(question: str, source: EvidenceSource) -> bool:
     """Require a named or specific term, not just a generic category match."""
+    relation = _relation_parts(question)
+    source_terms = _keywords(f"{source.title} {source.snippet}")
+    if relation:
+        subject_terms = _keywords(relation[0])
+        return bool(subject_terms) and subject_terms <= source_terms
     anchors = _keywords(question) - GENERIC_TOPIC_TERMS
     if not anchors:
         return True
-    source_terms = _keywords(f"{source.title} {source.snippet}")
     return bool(anchors & source_terms)
 
 
@@ -225,9 +274,7 @@ async def search_wikipedia(
     client: httpx.AsyncClient,
     limit: int = 8,
 ) -> list[EvidenceSource]:
-    search_query = _subject_query(question)
-    if _is_identity_question(question):
-        search_query = f"{search_query} biography"
+    search_query = _research_query(question)
     capital_match = re.search(r"\bcapital of\s+(.+?)\??$", question, flags=re.IGNORECASE)
     ceo_match = re.search(r"\bceo of\s+(.+?)\??$", question, flags=re.IGNORECASE)
     creator_match = re.search(r"\bwho created\s+(.+?)\??$", question, flags=re.IGNORECASE)
@@ -457,9 +504,7 @@ async def retrieve_web_evidence(
         follow_redirects=True,
         headers=DEFAULT_HEADERS,
     ) as client:
-        search_query = _subject_query(question)
-        if _is_identity_question(question):
-            search_query = f"{search_query} biography"
+        search_query = _research_query(question)
         tavily_results = (
             await search_tavily(search_query, api_key=settings.tavily_api_key, client=client)
             if settings.tavily_api_key
