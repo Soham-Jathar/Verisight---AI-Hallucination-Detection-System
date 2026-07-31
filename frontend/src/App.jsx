@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { loadSavedConversations, saveConversation } from './lib/conversations'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -10,6 +12,48 @@ const statusLabel = {
 
 function createConversation() {
   return { id: crypto.randomUUID(), title: 'New conversation', messages: [] }
+}
+
+function AuthDialog({ open, onClose, onAuthenticated }) {
+  const [mode, setMode] = useState('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  if (!open) return null
+
+  async function submit(event) {
+    event.preventDefault()
+    if (!supabase) return
+    setBusy(true)
+    setMessage('')
+    const result = mode === 'signin'
+      ? await supabase.auth.signInWithPassword({ email, password })
+      : await supabase.auth.signUp({ email, password })
+    setBusy(false)
+    if (result.error) { setMessage(result.error.message); return }
+    if (mode === 'signup' && !result.data.session) {
+      setMessage('Account created. Check your email to confirm it, then sign in.')
+      return
+    }
+    onAuthenticated()
+  }
+
+  return <div className="auth-backdrop" role="presentation" onMouseDown={onClose}>
+    <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="auth-close" type="button" onClick={onClose} aria-label="Close">×</button>
+      <p>VERISIGHT ACCOUNT</p><h2 id="auth-title">{mode === 'signin' ? 'Save your conversations' : 'Create an account'}</h2>
+      <span>{mode === 'signin' ? 'Sign in to keep your verification history across devices.' : 'Create a free account to save your verification history.'}</span>
+      <form onSubmit={submit}>
+        <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
+        <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="6" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></label>
+        <button type="submit" disabled={busy}>{busy ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
+      </form>
+      {message && <small className="auth-message">{message}</small>}
+      <button className="auth-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage('') }}>{mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>
+    </section>
+  </div>
 }
 
 function VerificationCard({ result }) {
@@ -70,6 +114,9 @@ function App() {
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [user, setUser] = useState(null)
+  const [authOpen, setAuthOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const fileInputRef = useRef(null)
   const recognitionRef = useRef(null)
 
@@ -89,6 +136,38 @@ function App() {
     return () => recognitionRef.current?.stop()
   }, [])
 
+  useEffect(() => {
+    if (!supabase) return undefined
+    let mounted = true
+    supabase.auth.getUser().then(({ data }) => {
+      if (mounted) setUser(data.user ?? null)
+    })
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mounted) setUser(session?.user ?? null)
+    })
+    return () => { mounted = false; subscription.subscription.unsubscribe() }
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    let mounted = true
+    async function restoreHistory() {
+      setHistoryLoading(true)
+      try {
+        const saved = await loadSavedConversations(user.id)
+        if (!mounted || !saved.length) return
+        setConversations(saved)
+        setActiveId(saved[0].id)
+      } catch {
+        if (mounted) setError('Your saved history could not be loaded.')
+      } finally {
+        if (mounted) setHistoryLoading(false)
+      }
+    }
+    restoreHistory()
+    return () => { mounted = false }
+  }, [user])
+
   const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId) ?? conversations[0], [activeId, conversations])
 
   function startNewChat() {
@@ -97,6 +176,31 @@ function App() {
     setActiveId(conversation.id)
     setDraft('')
     setError('')
+  }
+
+  async function persistConversation(conversation) {
+    if (!user) return
+    try {
+      await saveConversation(conversation, user.id)
+    } catch {
+      setError('The reply was generated, but the conversation could not be saved.')
+    }
+  }
+
+  function openAuth() {
+    if (!isSupabaseConfigured) {
+      setError('Saved history needs Supabase configuration before sign-in can be enabled.')
+      return
+    }
+    setAuthOpen(true)
+  }
+
+  async function signOut() {
+    await supabase?.auth.signOut()
+    setUser(null)
+    const conversation = createConversation()
+    setConversations([conversation])
+    setActiveId(conversation.id)
   }
 
   async function uploadPdf(event) {
@@ -155,7 +259,13 @@ function App() {
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail ?? 'The analysis request failed.')
       const assistantMessage = { id: crypto.randomUUID(), role: 'assistant', content: payload.answer ?? 'I could not generate an answer.', model: payload.model, verification: verifyEnabled ? payload : null }
-      setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, messages: conversation.messages.map((message) => message.id === pendingMessage.id ? assistantMessage : message) } : conversation))
+      const completedConversation = {
+        ...activeConversation,
+        title: activeConversation.messages.length === 0 ? question.slice(0, 42) : activeConversation.title,
+        messages: [...activeConversation.messages, userMessage, assistantMessage],
+      }
+      setConversations((current) => current.map((conversation) => conversation.id === conversationId ? completedConversation : conversation))
+      void persistConversation(completedConversation)
     } catch (requestError) {
       setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, messages: conversation.messages.filter((message) => message.id !== pendingMessage.id) } : conversation))
       setError(requestError.message)
@@ -166,9 +276,15 @@ function App() {
     <aside className="sidebar">
       <a className="brand" href="#top"><span className="brand-mark">V</span><span>VeriSight</span></a>
       <button className="new-chat" type="button" onClick={startNewChat}>+ New chat</button>
-      <div className="history-heading"><span>History</span><small>This session</small></div>
+      <div className="history-heading"><span>History</span><small>{historyLoading ? 'Loading...' : user ? 'Saved' : 'This session'}</small></div>
       <nav className="chat-history" aria-label="Chat history">{conversations.map((conversation) => <button type="button" key={conversation.id} className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}><span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small></button>)}</nav>
-      <div className="sidebar-footer"><span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span><p>Use web, PDF, or both as verification evidence.</p></div>
+      <div className="sidebar-footer">
+        <span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span>
+        <div className="account-panel">{user
+          ? <><strong title={user.email}>{user.email}</strong><button type="button" onClick={signOut}>Sign out</button></>
+          : <button type="button" onClick={openAuth}>{isSupabaseConfigured ? 'Sign in to save chats' : 'Configure saved history'}</button>}</div>
+        <p>Use web, PDF, or both as verification evidence.</p>
+      </div>
     </aside>
     <section className="chat-panel" id="top">
       <header className="chat-header">
@@ -196,6 +312,7 @@ function App() {
         <p>{verifyEnabled ? `Verification is on: using ${evidenceMode === 'document' ? 'your PDF' : evidenceMode === 'hybrid' ? 'web and your PDF' : 'web evidence'}.${uncertaintyEnabled ? ' Uncertainty uses two additional answer samples.' : ''}` : 'Verification is off: this response will not receive a reliability score.'}</p>
         {error && <strong className="error">{error}</strong>}
       </form>
+      <AuthDialog open={authOpen} onClose={() => setAuthOpen(false)} onAuthenticated={() => setAuthOpen(false)} />
     </section>
   </main>
 }

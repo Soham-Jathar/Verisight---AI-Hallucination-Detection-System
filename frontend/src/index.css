@@ -31,3 +31,21 @@
 .document-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer .document-chip button { position: static; padding: 0 4px; color: #b9c7e8; background: transparent; font-size: 16px; line-height: 1; }
 @media (max-width: 760px) { .chat-controls { gap: 8px; }.provider-select select { max-width: 96px; }.composer-row { gap: 6px; }.composer .utility-button { width: 37px; padding: 5px; overflow: hidden; color: transparent; }.composer .utility-button::first-letter { color: #cbd6ef; }.composer .send-button { min-width: 48px; padding-inline: 6px; } }
+
+.account-panel { display: grid; gap: 7px; margin-top: 14px; padding-top: 13px; border-top: 1px solid #a6b8e41a; }
+.account-panel strong { overflow: hidden; color: #c7d2ea; font: 10px 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+.account-panel button { width: fit-content; padding: 0; color: #aebcff; border: 0; background: transparent; font-size: 10px; text-decoration: underline; }
+.auth-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: #070b15bb; }
+.auth-dialog { position: relative; width: min(390px, 100%); padding: 28px; border: 1px solid #aebcff35; border-radius: 15px; background: #19243c; box-shadow: 0 20px 70px #03071199; }
+.auth-dialog > p { margin: 0 0 7px; color: #aebcff; font: 10px 'DM Mono', monospace; letter-spacing: .8px; }
+.auth-dialog h2 { margin: 0; color: #f2f5ff; font-size: 22px; }
+.auth-dialog > span { display: block; margin-top: 9px; color: #99a9c8; font-size: 12px; line-height: 1.5; }
+.auth-dialog form { display: grid; gap: 13px; margin-top: 22px; }
+.auth-dialog label { display: grid; gap: 6px; color: #b8c6e2; font-size: 11px; font-weight: 600; }
+.auth-dialog input { width: 100%; padding: 10px; color: #eff4ff; border: 1px solid #aebce43b; border-radius: 7px; outline: none; background: #10182a; }
+.auth-dialog input:focus { border-color: #9eaeff; }
+.auth-dialog form button { padding: 10px; color: white; border: 0; border-radius: 7px; background: #6372d4; font-weight: 700; }
+.auth-dialog form button:disabled { opacity: .6; }
+.auth-close { position: absolute; top: 12px; right: 14px; color: #aab8d4; border: 0; background: transparent; font-size: 23px; }
+.auth-switch { display: block; margin: 15px auto 0; color: #b8c6ff; border: 0; background: transparent; font-size: 11px; text-decoration: underline; }
+.auth-message { display: block; margin-top: 12px; color: #f3c982; font-size: 11px; line-height: 1.4; }
