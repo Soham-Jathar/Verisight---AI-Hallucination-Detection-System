@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import re
+import unicodedata
 
 from app.schemas import ClaimAssessment, EvidenceSource
 
@@ -13,7 +14,8 @@ class NLIUnavailable(RuntimeError):
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", ascii_text.strip().lower())
 
 
 def _token_overlap(left: str, right: str) -> float:
@@ -170,7 +172,7 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
     if entailment_votes and contradiction_votes:
         return "uncertain", max(best_entailment, best_contradiction), "Retrieved sources do not agree strongly enough to verify this claim."
     lexical_support = _lexical_support(claim, evidence)
-    if lexical_support >= 0.78 and not contradiction_votes:
+    if lexical_support >= 0.68 and not contradiction_votes:
         confidence = min(0.92, 0.55 + 0.45 * lexical_support)
         return "supported", confidence, "Retrieved evidence closely matches the factual content of this claim."
     return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim."

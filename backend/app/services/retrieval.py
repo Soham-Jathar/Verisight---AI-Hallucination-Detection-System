@@ -31,6 +31,22 @@ GENERIC_TOPIC_TERMS = {
     "creator", "creat", "inventor", "invent", "designer", "design", "founder", "found",
 }
 
+SUBJECT_ALIASES = {
+    "js": "JavaScript",
+    "javascript": "JavaScript",
+    "ecmascript": "JavaScript",
+    "cpp": "C++",
+    "c plus plus": "C++",
+    "py": "Python",
+    "css": "CSS",
+    "html": "HTML",
+}
+
+
+def _canonical_subject(subject: str) -> str:
+    normalized = re.sub(r"\s+", " ", subject.strip().lower())
+    return SUBJECT_ALIASES.get(normalized, subject.strip())
+
 
 def _relation_parts(question: str) -> tuple[str, str] | None:
     """Return (subject, relationship) for questions such as creator of C++."""
@@ -40,7 +56,7 @@ def _relation_parts(question: str) -> tuple[str, str] | None:
         flags=re.IGNORECASE,
     )
     if noun_match:
-        return noun_match.group(2).strip(), noun_match.group(1).lower()
+        return _canonical_subject(noun_match.group(2)), noun_match.group(1).lower()
 
     verb_match = re.search(
         r"\bwho\s+(created|invented|designed|founded)\s+(.+?)[?!.\s]*$",
@@ -54,7 +70,7 @@ def _relation_parts(question: str) -> tuple[str, str] | None:
             "designed": "designer",
             "founded": "founder",
         }[verb_match.group(1).lower()]
-        return verb_match.group(2).strip(), relationship
+        return _canonical_subject(verb_match.group(2)), relationship
     return None
 
 
@@ -66,7 +82,7 @@ def _subject_query(question: str) -> str:
     match = re.match(r"\s*who\s+is\s+(.+?)[?!.\s]*$", question, flags=re.IGNORECASE)
     if not match:
         return question
-    subject = match.group(1).strip()
+    subject = _canonical_subject(match.group(1))
     return subject or question
 
 

@@ -4,6 +4,7 @@ from app.services.retrieval import (
     _keywords,
     _relation_parts,
     _research_query,
+    _subject_query,
 )
 
 
@@ -30,3 +31,8 @@ def test_creator_question_rejects_unrelated_creator_result() -> None:
 
     assert not _has_topic_anchor(question, unrelated)
     assert _has_topic_anchor(question, relevant)
+
+
+def test_common_technical_aliases_are_canonicalized() -> None:
+    assert _relation_parts("Who created JS?") == ("JavaScript", "creator")
+    assert _subject_query("Who is JS?") == "JavaScript"
