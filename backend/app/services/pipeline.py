@@ -30,7 +30,7 @@ def _merge_evidence(*groups):
                     merged[index] = EvidenceSource(
                         title=existing.title,
                         url=existing.url,
-                        snippet=f"{existing.snippet} {source.snippet}"[:3_000],
+                        snippet=f"{existing.snippet} {source.snippet}"[:9_000],
                     )
                 continue
             indexes[key] = len(merged)

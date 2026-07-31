@@ -302,7 +302,10 @@ async def _article_excerpt(
     pages = response.json().get("query", {}).get("pages", {})
     page = next(iter(pages.values()), {})
     extract = page.get("extract", "")
-    return _select_relevant_sentences(extract, question, title) if extract else ""
+    # Keep a useful portion of the article. Claim-level verification later
+    # selects the exact supporting sentences; trimming here could remove the
+    # creator, date, or other fact before that selection had a chance to run.
+    return _normalize(extract)[:8_000] if extract else ""
 
 
 async def search_wikipedia(
@@ -592,7 +595,7 @@ async def retrieve_web_evidence(
                 merged[index] = EvidenceSource(
                     title=existing.title,
                     url=preferred_url,
-                    snippet=f"{existing.snippet} {source.snippet}"[:3_000],
+                    snippet=f"{existing.snippet} {source.snippet}"[:9_000],
                 )
             continue
         source_indexes[key] = len(merged)
