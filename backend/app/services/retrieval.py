@@ -568,7 +568,7 @@ async def retrieve_web_evidence(
             official_results = []
 
     merged: list[EvidenceSource] = []
-    seen_titles: set[str] = set()
+    source_indexes: dict[str, int] = {}
     for source in [*tavily_results, *official_results, *web_results, *wikipedia_results, *ddg_results]:
         key = _normalize(source.title)
         if (
@@ -576,10 +576,26 @@ async def retrieve_web_evidence(
             or not _is_citable_url(source.url)
             or not _has_topic_anchor(question, source)
             or _is_namesake_institution(question, source)
-            or key in seen_titles
         ):
             continue
-        seen_titles.add(key)
+        if key in source_indexes:
+            index = source_indexes[key]
+            existing = merged[index]
+            if source.snippet not in existing.snippet:
+                existing_host = urlparse(existing.url).netloc.lower()
+                source_host = urlparse(source.url).netloc.lower()
+                # Prefer the canonical Wikipedia link when it supplies the
+                # fuller article excerpt for the same titled page.
+                preferred_url = source.url if source_host.endswith("wikipedia.org") else existing.url
+                if existing_host.endswith("wikipedia.org"):
+                    preferred_url = existing.url
+                merged[index] = EvidenceSource(
+                    title=existing.title,
+                    url=preferred_url,
+                    snippet=f"{existing.snippet} {source.snippet}"[:3_000],
+                )
+            continue
+        source_indexes[key] = len(merged)
         merged.append(source)
 
     ranked = sorted(
