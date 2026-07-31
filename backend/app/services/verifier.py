@@ -35,6 +35,28 @@ def _evidence_match(claim: str, source: EvidenceSource) -> float:
     return 0.8 * coverage + 0.2 * _token_overlap(claim, evidence_text)
 
 
+def _claim_evidence_excerpt(claim: str, source: EvidenceSource) -> str:
+    """Give NLI a focused premise instead of a long search-result paragraph."""
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?;])\s+", source.snippet)
+        if len(sentence.strip()) >= 20
+    ]
+    if not sentences:
+        return f"{source.title}. {source.snippet[:900]}"
+
+    ranked = sorted(
+        (
+            (_evidence_match(claim, EvidenceSource(title=source.title, url=source.url, snippet=sentence)), sentence)
+            for sentence in sentences
+        ),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    selected = [sentence for _, sentence in ranked[:2]]
+    return f"{source.title}. {' '.join(selected)}"
+
+
 @lru_cache
 def _nli_model():
     """Load once, on the first verified answer instead of during API startup."""
@@ -75,7 +97,7 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         return "unsupported", 0.0, "No evidence source was available for this claim."
 
     model = _nli_model()
-    pairs = [(source.snippet, claim) for source in evidence]
+    pairs = [(_claim_evidence_excerpt(claim, source), claim) for source in evidence]
     predictions = model.predict(pairs, apply_softmax=True)
     scores = [_score_labels(model, [float(value) for value in row]) for row in predictions]
 
