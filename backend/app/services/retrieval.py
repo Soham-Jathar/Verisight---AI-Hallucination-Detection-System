@@ -30,6 +30,15 @@ GENERIC_TOPIC_TERMS = {
 }
 
 
+def _subject_query(question: str) -> str:
+    """Turn conversational identity questions into an entity-focused search."""
+    match = re.match(r"\s*who\s+is\s+(.+?)[?!.\s]*$", question, flags=re.IGNORECASE)
+    if not match:
+        return question
+    subject = match.group(1).strip()
+    return subject or question
+
+
 def _strip_html(text: str) -> str:
     return unescape(re.sub(r"<[^>]+>", "", text)).strip()
 
@@ -71,6 +80,10 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
             score -= 5
     host = urlparse(source.url).netloc.lower()
     if host.endswith((".ac.in", ".edu", ".edu.in", ".gov", ".gov.in")):
+        score += 3
+    # Encyclopaedia entries are a useful reliable fallback for broad biography
+    # questions when no primary source exists.
+    if host.endswith("wikipedia.org"):
         score += 3
     return score
 
@@ -158,7 +171,7 @@ async def search_wikipedia(
     client: httpx.AsyncClient,
     limit: int = 8,
 ) -> list[EvidenceSource]:
-    search_query = question
+    search_query = _subject_query(question)
     capital_match = re.search(r"\bcapital of\s+(.+?)\??$", question, flags=re.IGNORECASE)
     ceo_match = re.search(r"\bceo of\s+(.+?)\??$", question, flags=re.IGNORECASE)
     creator_match = re.search(r"\bwho created\s+(.+?)\??$", question, flags=re.IGNORECASE)
@@ -386,24 +399,28 @@ async def retrieve_web_evidence(
         follow_redirects=True,
         headers=DEFAULT_HEADERS,
     ) as client:
+        search_query = _subject_query(question)
         tavily_results = (
-            await search_tavily(question, api_key=settings.tavily_api_key, client=client)
+            await search_tavily(search_query, api_key=settings.tavily_api_key, client=client)
             if settings.tavily_api_key
             else []
         )
-        if tavily_results:
-            wikipedia_results: list[EvidenceSource] = []
-            ddg_results: list[EvidenceSource] = []
-            web_results: list[EvidenceSource] = []
-            official_results: list[EvidenceSource] = []
-        else:
-            wikipedia_results = await search_wikipedia(question, client=client)
+        # Tavily can occasionally return one keyword-matched but irrelevant page
+        # (for example, "Ramanujan College" for Srinivasa Ramanujan). Always
+        # blend in encyclopaedia results so that a single poor search result is
+        # never the whole verification evidence set.
+        wikipedia_results = await search_wikipedia(question, client=client)
+        if not tavily_results:
             ddg_results = await search_duckduckgo(question, client=client)
             web_results = await search_duckduckgo_web(question, client=client)
             official_results = await search_duckduckgo_web(
                 f'"{question}" official website',
                 client=client,
             )
+        else:
+            ddg_results = []
+            web_results = []
+            official_results = []
 
     merged: list[EvidenceSource] = []
     seen_titles: set[str] = set()
