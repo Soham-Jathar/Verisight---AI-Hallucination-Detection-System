@@ -9,6 +9,7 @@ from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, Eviden
 from app.services.generator import generate_answer, generate_correction, provider_info
 from app.services.documents import document_evidence
 from app.services.retrieval import retrieve_web_evidence
+from app.services.source_quality import enrich_source
 from app.services.uncertainty import estimate_uncertainty
 from app.services.verifier import (
     reliability_score,
@@ -32,6 +33,12 @@ def _merge_evidence(*groups):
                         title=existing.title,
                         url=existing.url,
                         snippet=f"{existing.snippet} {source.snippet}"[:9_000],
+                        credibility=max(existing.credibility, source.credibility),
+                        source_quality=(
+                            existing.source_quality
+                            if existing.credibility >= source.credibility
+                            else source.source_quality
+                        ),
                     )
                 continue
             indexes[key] = len(merged)
@@ -80,6 +87,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=str(exc),
             ) from exc
+    evidence = [enrich_source(source) for source in evidence]
     selected = [request.provider]
     if request.provider == LLMProvider.COMPARE:
         selected = [

@@ -16,6 +16,14 @@ const providerLabel = {
   openrouter: 'OpenRouter',
 }
 
+function Citation({ source, index }) {
+  const label = source.source_quality ?? 'Web source'
+  const content = <>{`[${index + 1}] ${source.title}`}<small className="source-quality">{label}</small></>
+  return source.url.startsWith('document://')
+    ? <em>{content}</em>
+    : <a href={source.url} target="_blank" rel="noreferrer">{content}</a>
+}
+
 function createConversation() {
   return { id: crypto.randomUUID(), title: 'New conversation', messages: [] }
 }
@@ -78,9 +86,7 @@ function VerificationCard({ result }) {
         </article>)}
       </div>
       {result.evidence?.length > 0 && <div className="citations"><span>Sources</span>
-        {result.evidence.map((source, index) => source.url.startsWith('document://')
-          ? <em key={`${source.url}-${index}`}>[{index + 1}] {source.title}</em>
-          : <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer">[{index + 1}] {source.title}</a>)}
+        {result.evidence.map((source, index) => <Citation key={`${source.url}-${index}`} source={source} index={index} />)}
       </div>}
     </div>
   </details>
@@ -92,9 +98,7 @@ function CorrectionCard({ correction }) {
     <p className="correction-label">Evidence-grounded correction</p>
     <p className="correction-answer">{correction.answer}</p>
     {correction.citations?.length > 0 && <div className="citations correction-citations"><span>Citations</span>
-      {correction.citations.map((source, index) => source.url.startsWith('document://')
-        ? <em key={`${source.url}-${index}`}>[{index + 1}] {source.title}</em>
-        : <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer">[{index + 1}] {source.title}</a>)}
+      {correction.citations.map((source, index) => <Citation key={`${source.url}-${index}`} source={source} index={index} />)}
     </div>}
   </section>
 }

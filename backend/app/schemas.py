@@ -44,6 +44,8 @@ class EvidenceSource(BaseModel):
     title: str
     url: str
     snippet: str
+    credibility: float = Field(default=0.55, ge=0.0, le=1.0)
+    source_quality: str = "Web source"
 
 
 class ClaimAssessment(BaseModel):

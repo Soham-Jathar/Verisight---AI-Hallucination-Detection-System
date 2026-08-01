@@ -9,6 +9,7 @@ import httpx
 
 from app.config import Settings
 from app.schemas import EvidenceSource
+from app.services.source_quality import enrich_source
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -178,6 +179,7 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
         + source_overlap
         + _identity_title_bonus(question, source.title)
         + _relation_title_bonus(question, source.title)
+        + 3 * source.credibility
     )
 
     requested_years = set(re.findall(r"\b(?:19|20)\d{2}\b", question))
@@ -573,6 +575,7 @@ async def retrieve_web_evidence(
     merged: list[EvidenceSource] = []
     source_indexes: dict[str, int] = {}
     for source in [*tavily_results, *official_results, *web_results, *wikipedia_results, *ddg_results]:
+        source = enrich_source(source)
         key = _normalize(source.title)
         if (
             not source.snippet
@@ -596,6 +599,12 @@ async def retrieve_web_evidence(
                     title=existing.title,
                     url=preferred_url,
                     snippet=f"{existing.snippet} {source.snippet}"[:9_000],
+                    credibility=max(existing.credibility, source.credibility),
+                    source_quality=(
+                        existing.source_quality
+                        if existing.credibility >= source.credibility
+                        else source.source_quality
+                    ),
                 )
             continue
         source_indexes[key] = len(merged)

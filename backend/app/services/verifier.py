@@ -249,7 +249,7 @@ def select_verification_sources(
     best_by_url: dict[str, tuple[float, EvidenceSource]] = {}
     for assessment in claims:
         for source in _claim_evidence(assessment.claim, evidence):
-            score = _evidence_match(assessment.claim, source)
+            score = _evidence_match(assessment.claim, source) * (0.85 + 0.15 * source.credibility)
             previous = best_by_url.get(source.url)
             if previous is None or score > previous[0]:
                 best_by_url[source.url] = (score, source)
