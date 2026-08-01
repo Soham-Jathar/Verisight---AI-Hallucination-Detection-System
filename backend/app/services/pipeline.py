@@ -8,6 +8,7 @@ from app.config import Settings
 from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, EvidenceSource, LLMProvider, ModelAnalysis, VerificationMode
 from app.services.generator import generate_answer, generate_correction, provider_info
 from app.services.math_verifier import verify_math_answer
+from app.services.math_notation import format_math_notation
 from app.services.documents import document_evidence
 from app.services.question_types import is_math_question, is_recommendation_request
 from app.services.retrieval import retrieve_web_evidence
@@ -119,6 +120,8 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 provider=provider,
                 history=request.history,
             )
+            if math_question:
+                answer = format_math_notation(answer)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         analysis_evidence = list(shared_evidence)

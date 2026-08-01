@@ -179,7 +179,9 @@ async def _generate_with_openai_compatible(
             "Use short sentences with one independently verifiable fact per sentence; "
             "do not combine a role, date, achievement, and event into one sentence. "
             "Do not claim that a list is complete unless the supplied information explicitly establishes that. "
-            "For a mathematical question, give only the requested result or formulas, with no extra identities."
+            "For a mathematical question, give only the requested result or formulas, with no extra identities. "
+            "Use readable Unicode notation such as ∫, ×, ÷, √, π, and superscripts. Never use raw LaTex commands "
+            "such as \\frac, \\int, or dollar-sign math delimiters."
         )
     )
     messages = [
@@ -245,7 +247,8 @@ async def _generate_with_gemini(
             "verifiable fact per sentence; do not combine a role, date, achievement, and event "
             "into one sentence. Do not claim that a list is complete unless the supplied information "
             "explicitly establishes that. For a mathematical question, give only the requested result or formulas, "
-            "with no extra identities."
+            "with no extra identities. Use readable Unicode notation such as ∫, ×, ÷, √, π, and superscripts. "
+            "Never use raw LaTex commands such as \\frac, \\int, or dollar-sign math delimiters."
         )
     )
     prompt = (
