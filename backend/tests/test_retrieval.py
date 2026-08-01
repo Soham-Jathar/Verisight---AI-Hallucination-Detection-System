@@ -1,5 +1,6 @@
 from app.schemas import EvidenceSource
 from app.services.retrieval import (
+    _split_compound_question,
     _has_topic_anchor,
     _keywords,
     _relation_parts,
@@ -36,3 +37,12 @@ def test_creator_question_rejects_unrelated_creator_result() -> None:
 def test_common_technical_aliases_are_canonicalized() -> None:
     assert _relation_parts("Who created JS?") == ("JavaScript", "creator")
     assert _subject_query("Who is JS?") == "JavaScript"
+
+
+def test_compound_ordinal_question_is_split_for_retrieval() -> None:
+    assert _split_compound_question(
+        "Who was the 9th PM of India and 18th President of USA?"
+    ) == [
+        "Who was the 9th PM of India?",
+        "Who was the 18th President of USA?",
+    ]

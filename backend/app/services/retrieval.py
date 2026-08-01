@@ -44,6 +44,37 @@ SUBJECT_ALIASES = {
 }
 
 
+def _split_compound_question(question: str) -> list[str]:
+    """Split two ordinal 'Who was ... and ...?' questions before retrieval.
+
+    A single search for two office holders tends to return evidence only for the
+    first country. Restrict this to the explicit ordinal form so ordinary
+    questions containing 'and' still stay together.
+    """
+    match = re.match(
+        r"^\s*(who\s+(?:was|is)\s+)(.+?)\s+and\s+(.+?)[?!\.\s]*$",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return [question]
+
+    prefix, first_subject, second_subject = match.groups()
+    ordinal = r"\b\d+(?:st|nd|rd|th)\b"
+    if not re.search(ordinal, first_subject, flags=re.IGNORECASE) or not re.search(
+        ordinal, second_subject, flags=re.IGNORECASE
+    ):
+        return [question]
+
+    second_question = second_subject.strip()
+    if not re.match(r"^(?:the|a|an)\b", second_question, flags=re.IGNORECASE):
+        second_question = f"the {second_question}"
+    return [
+        f"{prefix}{first_subject.strip()}?",
+        f"{prefix}{second_question}?",
+    ]
+
+
 def _canonical_subject(subject: str) -> str:
     normalized = re.sub(r"\s+", " ", subject.strip().lower())
     return SUBJECT_ALIASES.get(normalized, subject.strip())
@@ -543,6 +574,19 @@ async def retrieve_web_evidence(
     *,
     settings: Settings,
 ) -> list[EvidenceSource]:
+    question_parts = _split_compound_question(question)
+    if len(question_parts) > 1:
+        # Retrieve each independent fact separately, then preserve the top
+        # evidence from both sides for claim-level verification and citations.
+        merged: list[EvidenceSource] = []
+        seen_urls: set[str] = set()
+        for part in question_parts:
+            for source in await retrieve_web_evidence(part, settings=settings):
+                if source.url not in seen_urls:
+                    seen_urls.add(source.url)
+                    merged.append(source)
+        return merged[:4]
+
     timeout = httpx.Timeout(settings.request_timeout_seconds)
     async with httpx.AsyncClient(
         timeout=timeout,

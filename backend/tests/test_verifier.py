@@ -1,6 +1,7 @@
 from app.services.verifier import (
     extract_claims,
     reliability_score,
+    select_citations,
     select_verification_sources,
     verify_claims,
 )
@@ -19,6 +20,15 @@ def test_extract_claims_splits_explicit_pronoun_clause() -> None:
     assert claims == [
         "Bjarne Stroustrup created C++",
         "Bjarne Stroustrup developed it at Bell Labs.",
+    ]
+
+
+def test_extract_claims_keeps_initialisms_in_one_claim() -> None:
+    claims = extract_claims(
+        "Jon Bernthal earned an M.F.A. from Harvard University's Institute for Advanced Theatre Training."
+    )
+    assert claims == [
+        "Jon Bernthal earned an M.F.A. from Harvard University's Institute for Advanced Theatre Training."
     ]
 
 
@@ -41,6 +51,28 @@ def test_verification_sources_exclude_unrelated_pages() -> None:
     )
 
     assert select_verification_sources([claim], [unrelated, relevant]) == [relevant]
+
+
+def test_citations_are_selected_per_corrected_claim() -> None:
+    correction = "P. V. Narasimha Rao was the 9th Prime Minister of India. Ulysses S. Grant was the 18th President of the United States."
+    india = EvidenceSource(
+        title="P. V. Narasimha Rao",
+        url="https://example.com/rao",
+        snippet="P. V. Narasimha Rao served as the ninth prime minister of India.",
+    )
+    united_states = EvidenceSource(
+        title="Ulysses S. Grant",
+        url="https://example.com/grant",
+        snippet="Ulysses S. Grant was the 18th president of the United States.",
+    )
+    unrelated = EvidenceSource(
+        title="India-Indonesia relations",
+        url="https://example.com/relations",
+        snippet="India and Indonesia have longstanding diplomatic relations.",
+    )
+
+    citations = select_citations(correction, [unrelated, india, united_states])
+    assert citations == [india, united_states]
 
 
 def test_verify_claims_marks_supported_overlap() -> None:

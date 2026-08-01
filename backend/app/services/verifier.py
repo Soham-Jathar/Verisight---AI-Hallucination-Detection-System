@@ -179,7 +179,21 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
 
 
 def extract_claims(answer: str) -> list[str]:
-    sentences = re.split(r"(?<=[.!?])\s+", answer.strip())
+    # Protect initialisms and titles before splitting sentences. Without this,
+    # "earned an M.F.A. from Harvard" was incorrectly treated as two claims.
+    marker = "<period>"
+
+    def protect(match: re.Match[str]) -> str:
+        return match.group(0).replace(".", marker)
+
+    protected_answer = re.sub(r"\b(?:[A-Za-z]\.\s*){2,}", protect, answer.strip())
+    protected_answer = re.sub(
+        r"\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St)\.",
+        protect,
+        protected_answer,
+        flags=re.IGNORECASE,
+    )
+    sentences = [sentence.replace(marker, ".") for sentence in re.split(r"(?<=[.!?])\s+", protected_answer)]
     boilerplate = re.compile(r"^(?:based on (?:the )?(?:provided|retrieved) evidence,?\s*)", flags=re.IGNORECASE)
     claims: list[str] = []
     last_person: str | None = None
@@ -258,8 +272,20 @@ def select_verification_sources(
 
 
 def select_citations(answer: str, evidence: list[EvidenceSource], *, limit: int = 2) -> list[EvidenceSource]:
-    """Return only sources whose title/excerpt materially matches the correction."""
-    ranked = sorted(((_evidence_match(answer, source), source) for source in evidence), key=lambda item: item[0], reverse=True)
+    """Return sources that substantively support an individual corrected claim.
+
+    Ranking a whole correction can mistakenly cite a page that merely shares a
+    country name. Claim-by-claim selection keeps citations relevant when an
+    answer contains more than one factual statement.
+    """
+    best_by_url: dict[str, tuple[float, EvidenceSource]] = {}
+    for claim in extract_claims(answer):
+        for source in _claim_evidence(claim, evidence):
+            score = _evidence_match(claim, source) * (0.85 + 0.15 * source.credibility)
+            previous = best_by_url.get(source.url)
+            if previous is None or score > previous[0]:
+                best_by_url[source.url] = (score, source)
+    ranked = sorted(best_by_url.values(), key=lambda item: item[0], reverse=True)
     return [source for score, source in ranked[:limit] if score >= 0.30]
 
 
