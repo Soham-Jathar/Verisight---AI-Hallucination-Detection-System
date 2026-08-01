@@ -91,4 +91,12 @@ def resolve_contextual_question(question: str, history) -> str:
         if match:
             title = match.group(1).strip()
             return f"Who is the author of the autobiography titled {title}?"
+        book_match = re.match(
+            r"\s*(.+?)\s+(?:book|novel|series)\s*[?!.,]*$",
+            message.content,
+            flags=re.IGNORECASE,
+        )
+        if book_match:
+            title = book_match.group(1).strip()
+            return f"Who is the author of the autobiography titled {title}?"
     return resolved

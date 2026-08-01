@@ -71,6 +71,13 @@ def test_autobiography_follow_up_uses_last_book_title() -> None:
     )
 
 
+def test_autobiography_follow_up_uses_title_from_book_wording() -> None:
+    history = [ChatMessage(role="user", content="Wings of Fire book")]
+    assert resolve_contextual_question("The autobiography one", history) == (
+        "Who is the author of the autobiography titled Wings of Fire?"
+    )
+
+
 def test_secant_derivative_is_checked() -> None:
     answer = "The derivative of sec(x) is sec(x)tan(x)."
     claims = verify_math_answer("Derivation of secx", answer)
