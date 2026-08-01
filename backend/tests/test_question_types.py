@@ -1,10 +1,14 @@
+import pytest
+
 from app.services.math_verifier import verify_math_answer
 from app.services.question_types import (
+    RequestKind,
     is_math_question,
     is_recommendation_request,
     normalize_math_shorthand,
     resolve_contextual_question,
     resolve_math_follow_up,
+    route_request,
 )
 from app.schemas import ChatMessage
 
@@ -17,6 +21,49 @@ def test_gift_ideas_are_not_fact_checked() -> None:
     assert is_recommendation_request("5 financial books")
     assert is_recommendation_request("5 selfhelp book")
     assert is_recommendation_request("5 mystery book for kids")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "5 spy books",
+        "5 mystery book for kids",
+        "5 financial books",
+        "5 selfhelp book",
+        "Give me five books about investing",
+        "Recommend good gifts for a friend",
+        "Show 5 websites for calculus",
+        "Top 10 movies for kids",
+    ],
+)
+def test_all_curated_lists_use_the_recommendation_path(question: str) -> None:
+    assert route_request(question, []).kind == RequestKind.RECOMMENDATION
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Who created C++?",
+        "Who is A. P. J. Abdul Kalam?",
+        "List five books written by A. P. J. Abdul Kalam",
+        "Who was the first captain of the Indian cricket team?",
+    ],
+)
+def test_factual_questions_keep_the_evidence_verification_path(question: str) -> None:
+    assert route_request(question, []).kind == RequestKind.FACTUAL
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What is 9!",
+        "Formula for integration of cosinex and derivative of tanx",
+        "formula to calculate determinant of a 3x3 matrix",
+        "Is 3+3=9?",
+    ],
+)
+def test_math_requests_use_the_deterministic_path(question: str) -> None:
+    assert route_request(question, []).kind == RequestKind.MATH
 
 
 def test_basic_math_uses_deterministic_verification() -> None:
@@ -79,6 +126,13 @@ def test_autobiography_follow_up_uses_title_from_book_wording() -> None:
     assert resolve_contextual_question("The autobiography one", history) == (
         "Who is the author of the autobiography titled Wings of Fire?"
     )
+
+
+def test_book_follow_up_is_routed_as_a_complete_factual_question() -> None:
+    history = [ChatMessage(role="user", content="Wings of Fire book")]
+    routed = route_request("The autobiography one", history)
+    assert routed.kind == RequestKind.FACTUAL
+    assert routed.question == "Who is the author of the autobiography titled Wings of Fire?"
 
 
 def test_secant_derivative_is_checked() -> None:

@@ -11,9 +11,8 @@ from app.services.math_verifier import verify_math_answer
 from app.services.math_notation import format_math_notation
 from app.services.documents import document_evidence
 from app.services.question_types import (
-    is_math_question,
-    is_recommendation_request,
-    resolve_contextual_question,
+    RequestKind,
+    route_request,
 )
 from app.services.retrieval import retrieve_web_evidence
 from app.services.source_quality import enrich_source
@@ -78,9 +77,10 @@ async def _expand_uncertain_claim_evidence(
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
-    analysis_question = resolve_contextual_question(request.question, request.history)
-    recommendation_request = is_recommendation_request(analysis_question)
-    math_question = is_math_question(analysis_question)
+    routed_request = route_request(request.question, request.history)
+    analysis_question = routed_request.question
+    recommendation_request = routed_request.kind == RequestKind.RECOMMENDATION
+    math_question = routed_request.kind == RequestKind.MATH
     verification_applicable = request.verify and not recommendation_request
     evidence = []
     if verification_applicable and not math_question and request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID}:
