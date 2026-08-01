@@ -74,6 +74,11 @@ def _linear_trig_checks(question: str, answer: str) -> list[ClaimAssessment]:
             "The derivative of {coefficient}cos(x) is -{coefficient}sin(x).",
             lambda coefficient: f"-{_number_label(coefficient)}sin(x)",
         ),
+        (
+            r"(?:derivative|differentiate)(?:of)?(?P<coefficient>\d*)tan\(?x\)?",
+            "The derivative of {coefficient}tan(x) is {coefficient}sec²(x).",
+            lambda coefficient: f"{_number_label(coefficient)}sec²(x)",
+        ),
     )
     for pattern, label, expected in patterns:
         match = re.search(pattern, normalized_question)

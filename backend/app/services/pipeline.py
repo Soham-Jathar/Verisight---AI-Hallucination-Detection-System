@@ -10,7 +10,11 @@ from app.services.generator import generate_answer, generate_correction, provide
 from app.services.math_verifier import verify_math_answer
 from app.services.math_notation import format_math_notation
 from app.services.documents import document_evidence
-from app.services.question_types import is_math_question, is_recommendation_request
+from app.services.question_types import (
+    is_math_question,
+    is_recommendation_request,
+    resolve_math_follow_up,
+)
 from app.services.retrieval import retrieve_web_evidence
 from app.services.source_quality import enrich_source
 from app.services.uncertainty import estimate_uncertainty
@@ -74,8 +78,9 @@ async def _expand_uncertain_claim_evidence(
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
-    recommendation_request = is_recommendation_request(request.question)
-    math_question = is_math_question(request.question)
+    analysis_question = resolve_math_follow_up(request.question, request.history)
+    recommendation_request = is_recommendation_request(analysis_question)
+    math_question = is_math_question(analysis_question)
     verification_applicable = request.verify and not recommendation_request
     evidence = []
     if verification_applicable and not math_question and request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID}:
@@ -84,10 +89,10 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Upload a PDF before using document or hybrid verification.",
             )
-        evidence.extend(document_evidence(request.document_id, request.question))
+        evidence.extend(document_evidence(request.document_id, analysis_question))
     if verification_applicable and not math_question and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}:
         try:
-            evidence.extend(await retrieve_web_evidence(request.question, settings=settings))
+            evidence.extend(await retrieve_web_evidence(analysis_question, settings=settings))
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -114,7 +119,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     for index, provider in enumerate(selected):
         try:
             answer, model = await generate_answer(
-                request.question,
+                analysis_question,
                 shared_evidence,
                 settings=settings,
                 provider=provider,
@@ -126,7 +131,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         analysis_evidence = list(shared_evidence)
         claims = (
-            verify_math_answer(request.question, answer)
+            verify_math_answer(analysis_question, answer)
             if verification_applicable and math_question
             else verify_claims(answer, analysis_evidence)
             if verification_applicable
@@ -139,7 +144,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             and any(claim.status == "uncertain" for claim in claims)
         ):
             analysis_evidence = await _expand_uncertain_claim_evidence(
-                request.question,
+                analysis_question,
                 claims,
                 analysis_evidence,
                 settings=settings,
@@ -189,7 +194,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
 
     if request.measure_uncertainty:
         uncertainty_score = await estimate_uncertainty(
-            request.question,
+            analysis_question,
             answer,
             primary_evidence,
             settings=settings,

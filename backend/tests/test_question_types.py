@@ -1,5 +1,11 @@
 from app.services.math_verifier import verify_math_answer
-from app.services.question_types import is_math_question, is_recommendation_request
+from app.services.question_types import (
+    is_math_question,
+    is_recommendation_request,
+    normalize_math_shorthand,
+    resolve_math_follow_up,
+)
+from app.schemas import ChatMessage
 
 
 def test_gift_ideas_are_not_fact_checked() -> None:
@@ -43,6 +49,15 @@ def test_three_by_three_determinant_formula_is_checked() -> None:
     answer = "det(A) = a(ei - fh) - b(di - fg) + c(dh - eg)."
     claims = verify_math_answer("formula to calculate determinant of a 3x3 matrix", answer)
     assert claims[0].status == "supported"
+
+
+def test_math_shorthand_is_normalized() -> None:
+    assert normalize_math_shorthand("cosine x integration formula") == "cos(x) integration formula"
+
+
+def test_math_follow_up_uses_previous_math_context() -> None:
+    history = [ChatMessage(role="user", content="Formula for integration of cosinex and derivative of tanx")]
+    assert resolve_math_follow_up("I asked for cosinex", history) == "What is the integration formula for cos(x)?"
 
 
 def test_arithmetic_is_checked_without_web_evidence() -> None:
