@@ -46,3 +46,8 @@ def test_compound_ordinal_question_is_split_for_retrieval() -> None:
         "Who was the 9th PM of India?",
         "Who was the 18th President of USA?",
     ]
+
+
+def test_identity_question_with_achievement_request_keeps_person_subject() -> None:
+    assert _subject_query("Who is Prakash Padukone and list his achievements?") == "Prakash Padukone"
+    assert _research_query("Who is Prakash Padukone and list his achievements?") == "Prakash Padukone achievements career"

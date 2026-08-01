@@ -111,7 +111,11 @@ def _subject_query(question: str) -> str:
     relation = _relation_parts(question)
     if relation:
         return relation[0]
-    match = re.match(r"\s*who\s+is\s+(.+?)[?!.\s]*$", question, flags=re.IGNORECASE)
+    match = re.match(
+        r"\s*who\s+is\s+(.+?)(?=\s+(?:and|with|including)\b|[?!.,]|$)",
+        question,
+        flags=re.IGNORECASE,
+    )
     if not match:
         return question
     subject = _canonical_subject(match.group(1))
@@ -119,9 +123,7 @@ def _subject_query(question: str) -> str:
 
 
 def _is_identity_question(question: str) -> bool:
-    return _relation_parts(question) is None and bool(
-        re.match(r"\s*who\s+is\s+.+", question, flags=re.IGNORECASE)
-    )
+    return _relation_parts(question) is None and _subject_query(question) != question
 
 
 def _research_query(question: str) -> str:
@@ -130,7 +132,11 @@ def _research_query(question: str) -> str:
         subject, relationship = relation
         return f'"{subject}" {relationship}'
     subject = _subject_query(question)
-    return f"{subject} biography" if _is_identity_question(question) else question
+    if _is_identity_question(question):
+        if re.search(r"\b(?:achievement|awards?|career|accomplishment)\b", question, flags=re.IGNORECASE):
+            return f"{subject} achievements career"
+        return f"{subject} biography"
+    return question
 
 
 def _relation_title_bonus(question: str, title: str) -> float:
@@ -279,6 +285,23 @@ def _is_namesake_institution(question: str, source: EvidenceSource) -> bool:
         and bool(title_terms & GENERIC_TOPIC_TERMS)
         and not host.endswith("wikipedia.org")
     )
+
+
+def _is_unrelated_identity_page(question: str, source: EvidenceSource) -> bool:
+    """Reject a relative's biography when researching a named person.
+
+    Search results for a famous person frequently include an article about a
+    better-known family member. A mention in that article is not sufficient
+    evidence for the requested biography or achievements.
+    """
+    if not _is_identity_question(question):
+        return False
+    subject_terms = _keywords(_subject_query(question))
+    title_terms = _keywords(source.title)
+    if not subject_terms or subject_terms <= title_terms:
+        return False
+    host = urlparse(source.url).netloc.lower()
+    return source.credibility < 0.90 and not host.endswith((".gov", ".gov.in", ".edu", ".edu.in"))
 
 
 def _select_relevant_sentences(
@@ -626,6 +649,7 @@ async def retrieve_web_evidence(
             or not _is_citable_url(source.url)
             or not _has_topic_anchor(question, source)
             or _is_namesake_institution(question, source)
+            or _is_unrelated_identity_page(question, source)
         ):
             continue
         if key in source_indexes:

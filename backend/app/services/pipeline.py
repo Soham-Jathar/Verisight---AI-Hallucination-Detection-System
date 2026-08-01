@@ -7,7 +7,9 @@ from fastapi import HTTPException, status
 from app.config import Settings
 from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, EvidenceSource, LLMProvider, ModelAnalysis, VerificationMode
 from app.services.generator import generate_answer, generate_correction, provider_info
+from app.services.math_verifier import verify_math_answer
 from app.services.documents import document_evidence
+from app.services.question_types import is_math_question, is_recommendation_request
 from app.services.retrieval import retrieve_web_evidence
 from app.services.source_quality import enrich_source
 from app.services.uncertainty import estimate_uncertainty
@@ -71,15 +73,18 @@ async def _expand_uncertain_claim_evidence(
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
+    recommendation_request = is_recommendation_request(request.question)
+    math_question = is_math_question(request.question)
+    verification_applicable = request.verify and not recommendation_request
     evidence = []
-    if request.verify and request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID}:
+    if verification_applicable and not math_question and request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID}:
         if not request.document_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Upload a PDF before using document or hybrid verification.",
             )
         evidence.extend(document_evidence(request.document_id, request.question))
-    if request.verify and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}:
+    if verification_applicable and not math_question and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}:
         try:
             evidence.extend(await retrieve_web_evidence(request.question, settings=settings))
         except ValueError as exc:
@@ -117,9 +122,16 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         analysis_evidence = list(shared_evidence)
-        claims = verify_claims(answer, analysis_evidence) if request.verify else []
+        claims = (
+            verify_math_answer(request.question, answer)
+            if verification_applicable and math_question
+            else verify_claims(answer, analysis_evidence)
+            if verification_applicable
+            else []
+        )
         if (
-            request.verify
+            verification_applicable
+            and not math_question
             and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}
             and any(claim.status == "uncertain" for claim in claims)
         ):
@@ -139,7 +151,9 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 model=model,
                 answer=answer,
                 claims=claims,
-                reliability_score=reliability_score(claims) if request.verify else None,
+                reliability_score=(
+                    reliability_score(claims) if verification_applicable and claims else None
+                ),
             )
         )
 
@@ -153,8 +167,8 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     unsupported = sum(1 for claim in claims if claim.status == "unsupported")
     correction = None
     uncertainty_score = None
-    visible_evidence = select_verification_sources(claims, primary_evidence) if request.verify else []
-    if request.verify and primary_evidence and unsupported:
+    visible_evidence = select_verification_sources(claims, primary_evidence) if verification_applicable else []
+    if verification_applicable and primary_evidence and unsupported:
         try:
             corrected_answer, _ = await generate_correction(
                 request.question,
@@ -182,6 +196,15 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
 
     if not request.verify:
         message = "Answer generated without verification."
+    elif recommendation_request:
+        message = "Verification is not applicable to preference-based recommendations."
+    elif math_question and not claims:
+        message = "This mathematical answer could not be checked by the available deterministic rules."
+    elif math_question:
+        message = (
+            f"Analyzed {len(claims)} mathematical statement(s) using deterministic rules. "
+            f"Supported: {supported}, unsupported: {unsupported}. Reliability score: {score:.2f}."
+        )
     elif not primary_evidence:
         message = (
             "No evidence was retrieved. The answer could not be verified against sources."
