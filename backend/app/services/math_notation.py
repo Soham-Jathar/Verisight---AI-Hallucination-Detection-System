@@ -14,6 +14,7 @@ def format_math_notation(text: str) -> str:
     """Convert common raw LaTeX fragments into readable Unicode notation."""
     formatted = text.replace("\\(", "").replace("\\)", "").replace("$", "")
     formatted = formatted.replace("\\left", "").replace("\\right", "")
+    formatted = re.sub(r"(?<=\d)\s*[x×]\s*(?=\d)", " × ", formatted)
     formatted = re.sub(
         r"\\frac\{x\^\{([^{}]+)\}\}\{([^{}]+)\}",
         lambda match: f"x^{{{match.group(1)}}}/({match.group(2)})",

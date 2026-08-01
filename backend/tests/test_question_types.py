@@ -4,6 +4,7 @@ from app.services.question_types import is_math_question, is_recommendation_requ
 
 def test_gift_ideas_are_not_fact_checked() -> None:
     assert is_recommendation_request("List 5 gift ideas for professor")
+    assert is_recommendation_request("Give 5 sites related to calculus formulas")
 
 
 def test_basic_math_uses_deterministic_verification() -> None:
@@ -29,6 +30,19 @@ def test_factorial_product_and_integration_formulas_are_checked() -> None:
     claims = verify_math_answer("What is 4!*5!? And give basic integration formulas", answer)
     assert len(claims) == 8
     assert all(claim.status == "supported" for claim in claims)
+
+
+def test_scaled_trigonometric_calculus_is_checked() -> None:
+    answer = "The integral of 2sin(x) is -2cos(x) + C. The derivative of 4cos(x) is -4sin(x)."
+    claims = verify_math_answer("What is integration of 2sinx and derivative of 4cosx", answer)
+    assert len(claims) == 2
+    assert all(claim.status == "supported" for claim in claims)
+
+
+def test_three_by_three_determinant_formula_is_checked() -> None:
+    answer = "det(A) = a(ei - fh) - b(di - fg) + c(dh - eg)."
+    claims = verify_math_answer("formula to calculate determinant of a 3x3 matrix", answer)
+    assert claims[0].status == "supported"
 
 
 def test_arithmetic_is_checked_without_web_evidence() -> None:

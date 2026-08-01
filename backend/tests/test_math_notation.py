@@ -9,3 +9,7 @@ def test_math_notation_removes_latex_delimiters_and_commands() -> None:
 def test_math_notation_formats_common_fraction_and_exponent() -> None:
     answer = r"\frac{x^{n+1}}{n+1} + C"
     assert format_math_notation(answer) == "xⁿ⁺¹/(n+1) + C"
+
+
+def test_math_notation_uses_multiplication_symbol_for_dimensions() -> None:
+    assert format_math_notation("A 3x3 matrix") == "A 3 × 3 matrix"

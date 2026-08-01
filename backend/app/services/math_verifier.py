@@ -45,14 +45,62 @@ def _assessment(claim: str, correct: bool) -> ClaimAssessment:
     )
 
 
-def _contains_integral_cos(answer: str) -> bool:
-    normalized = _normalized(answer)
-    return bool(re.search(r"sin\(?x\)?\+?(?:c|constant)", normalized))
+def _number_label(coefficient: str) -> str:
+    return "" if coefficient in {"", "1"} else coefficient
 
 
-def _contains_derivative_sin(answer: str) -> bool:
+def _linear_trig_checks(question: str, answer: str) -> list[ClaimAssessment]:
+    normalized_question = _normalized(question)
+    normalized_answer = _normalized(answer)
+    checks: list[ClaimAssessment] = []
+    patterns = (
+        (
+            r"(?:integral|integration|integrate)(?:of)?(?P<coefficient>\d*)sin\(?x\)?",
+            "The integral of {coefficient}sin(x) is -{coefficient}cos(x) + C.",
+            lambda coefficient: f"-{_number_label(coefficient)}cos(x)+c",
+        ),
+        (
+            r"(?:integral|integration|integrate)(?:of)?(?P<coefficient>\d*)cos\(?x\)?",
+            "The integral of {coefficient}cos(x) is {coefficient}sin(x) + C.",
+            lambda coefficient: f"{_number_label(coefficient)}sin(x)+c",
+        ),
+        (
+            r"(?:derivative|differentiate)(?:of)?(?P<coefficient>\d*)sin\(?x\)?",
+            "The derivative of {coefficient}sin(x) is {coefficient}cos(x).",
+            lambda coefficient: f"{_number_label(coefficient)}cos(x)",
+        ),
+        (
+            r"(?:derivative|differentiate)(?:of)?(?P<coefficient>\d*)cos\(?x\)?",
+            "The derivative of {coefficient}cos(x) is -{coefficient}sin(x).",
+            lambda coefficient: f"-{_number_label(coefficient)}sin(x)",
+        ),
+    )
+    for pattern, label, expected in patterns:
+        match = re.search(pattern, normalized_question)
+        if not match:
+            continue
+        coefficient = match.group("coefficient") or "1"
+        rendered = _number_label(coefficient)
+        checks.append(
+            _assessment(
+                label.format(coefficient=rendered),
+                expected(coefficient) in normalized_answer,
+            )
+        )
+    return checks
+
+
+def _determinant_check(question: str, answer: str) -> list[ClaimAssessment]:
+    dimensions = r"(?:3\s*[x×]\s*3|3by3)"
+    if not re.search(
+        rf"\b{dimensions}\b.*\bdeterminant|\bdeterminant\b.*\b{dimensions}\b",
+        question,
+        flags=re.IGNORECASE,
+    ):
+        return []
     normalized = _normalized(answer)
-    return bool(re.search(r"(?:derivativeof)?sin\(?x\)?.{0,32}(?:is|=)?cos\(?x\)?", normalized))
+    valid = all(part in normalized for part in ("a(ei-fh)", "-b(di-fg)", "+c(dh-eg)"))
+    return [_assessment("det(A) = a(ei − fh) − b(di − fg) + c(dh − eg).", valid)]
 
 
 def _arithmetic_expression(question: str) -> tuple[float, str] | None:
@@ -125,10 +173,8 @@ def verify_math_answer(question: str, answer: str) -> list[ClaimAssessment]:
     normalized_question = _normalized(question)
     assessments: list[ClaimAssessment] = []
 
-    if re.search(r"(?:integral|integration|integrate).{0,30}cos\(?x\)?", normalized_question):
-        assessments.append(_assessment("The integral of cos(x) is sin(x) + C.", _contains_integral_cos(answer)))
-    if re.search(r"(?:derivative|differentiate).{0,30}sin\(?x\)?", normalized_question):
-        assessments.append(_assessment("The derivative of sin(x) is cos(x).", _contains_derivative_sin(answer)))
+    assessments.extend(_linear_trig_checks(question, answer))
+    assessments.extend(_determinant_check(question, answer))
 
     assessments.extend(_factorial_checks(question, answer))
     assessments.extend(_basic_integration_checks(question, answer))
