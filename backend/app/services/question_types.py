@@ -21,4 +21,5 @@ def is_math_question(question: str) -> bool:
     return bool(
         re.search(r"\b(?:integral|integration|integrate|derivative|differentiate|solve|calculate|evaluate)\b", normalized)
         or re.search(r"\b\d+(?:\.\d+)?\s*[+*/-]\s*\d+(?:\.\d+)?\b", normalized)
+        or bool(re.search(r"\b\d+\s*!", normalized))
     )

@@ -32,6 +32,14 @@ def test_extract_claims_keeps_initialisms_in_one_claim() -> None:
     ]
 
 
+def test_extract_claims_ignores_evidence_refusal_sentence() -> None:
+    answer = (
+        "C. K. Nayudu was the first Test captain of India. "
+        "The supplied information does not name all the players in that team."
+    )
+    assert extract_claims(answer) == ["C. K. Nayudu was the first Test captain of India."]
+
+
 def test_verification_sources_exclude_unrelated_pages() -> None:
     claim = ClaimAssessment(
         claim="Bjarne Stroustrup created C++.",

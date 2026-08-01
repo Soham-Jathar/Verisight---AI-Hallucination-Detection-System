@@ -178,7 +178,8 @@ async def _generate_with_openai_compatible(
             "Do not start with phrases such as 'Based on the provided evidence'. "
             "Use short sentences with one independently verifiable fact per sentence; "
             "do not combine a role, date, achievement, and event into one sentence. "
-            "Do not claim that a list is complete unless the supplied information explicitly establishes that."
+            "Do not claim that a list is complete unless the supplied information explicitly establishes that. "
+            "For a mathematical question, give only the requested result or formulas, with no extra identities."
         )
     )
     messages = [
@@ -243,7 +244,8 @@ async def _generate_with_gemini(
             "'Based on the provided evidence'. Use short sentences with one independently "
             "verifiable fact per sentence; do not combine a role, date, achievement, and event "
             "into one sentence. Do not claim that a list is complete unless the supplied information "
-            "explicitly establishes that."
+            "explicitly establishes that. For a mathematical question, give only the requested result or formulas, "
+            "with no extra identities."
         )
     )
     prompt = (

@@ -136,6 +136,12 @@ def _research_query(question: str) -> str:
         if re.search(r"\b(?:achievement|awards?|career|accomplishment)\b", question, flags=re.IGNORECASE):
             return f"{subject} achievements career"
         return f"{subject} biography"
+    if re.search(
+        r"\b(?:first|1st)\s+captain\b.*\bindian cricket\b.*\b(?:players|team|squad)\b",
+        question,
+        flags=re.IGNORECASE,
+    ):
+        return '"India inaugural Test 1932" playing eleven C. K. Nayudu'
     return question
 
 

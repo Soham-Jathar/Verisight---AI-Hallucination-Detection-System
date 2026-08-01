@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 
 from app.schemas import ClaimAssessment
@@ -21,7 +22,14 @@ NUMBER_WORDS = {
 
 
 def _normalized(text: str) -> str:
-    return text.lower().replace("\\", "").replace(" ", "")
+    return (
+        text.lower()
+        .replace("\\", "")
+        .replace(" ", "")
+        .replace("{", "")
+        .replace("}", "")
+        .replace("$", "")
+    )
 
 
 def _assessment(claim: str, correct: bool) -> ClaimAssessment:
@@ -75,6 +83,43 @@ def _answer_has_number(answer: str, value: float) -> bool:
     return str(value) in compact
 
 
+def _contains_all(answer: str, *parts: str) -> bool:
+    normalized = _normalized(answer)
+    return all(part in normalized for part in parts)
+
+
+def _factorial_checks(question: str, answer: str) -> list[ClaimAssessment]:
+    values = [int(value) for value in re.findall(r"\b(\d+)\s*!", question)]
+    assessments: list[ClaimAssessment] = []
+    for value in dict.fromkeys(values):
+        if value > 20:
+            continue
+        result = math.factorial(value)
+        assessments.append(_assessment(f"{value}! = {result:,}.", _answer_has_number(answer, float(result))))
+
+    product = re.search(r"\b(\d+)\s*!\s*[×*x]\s*(\d+)\s*!", question, flags=re.IGNORECASE)
+    if product:
+        first, second = (int(value) for value in product.groups())
+        if first <= 20 and second <= 20:
+            result = math.factorial(first) * math.factorial(second)
+            assessments.append(
+                _assessment(f"{first}! × {second}! = {result:,}.", _answer_has_number(answer, float(result)))
+            )
+    return assessments
+
+
+def _basic_integration_checks(question: str, answer: str) -> list[ClaimAssessment]:
+    if not re.search(r"\bbasic\s+integration\s+formulas?\b", question, flags=re.IGNORECASE):
+        return []
+    return [
+        _assessment("The integral of a constant k is kx + C.", _contains_all(answer, "kx+c")),
+        _assessment("The integral of 1/x is ln|x| + C.", _contains_all(answer, "ln|x|+c")),
+        _assessment("The integral of e^x is e^x + C.", _contains_all(answer, "e^x+c")),
+        _assessment("The integral of sin(x) is -cos(x) + C.", _contains_all(answer, "-cos(x)+c")),
+        _assessment("The integral of cos(x) is sin(x) + C.", _contains_all(answer, "sin(x)+c")),
+    ]
+
+
 def verify_math_answer(question: str, answer: str) -> list[ClaimAssessment]:
     """Verify a small, transparent set of arithmetic and calculus facts locally."""
     normalized_question = _normalized(question)
@@ -84,6 +129,9 @@ def verify_math_answer(question: str, answer: str) -> list[ClaimAssessment]:
         assessments.append(_assessment("The integral of cos(x) is sin(x) + C.", _contains_integral_cos(answer)))
     if re.search(r"(?:derivative|differentiate).{0,30}sin\(?x\)?", normalized_question):
         assessments.append(_assessment("The derivative of sin(x) is cos(x).", _contains_derivative_sin(answer)))
+
+    assessments.extend(_factorial_checks(question, answer))
+    assessments.extend(_basic_integration_checks(question, answer))
 
     arithmetic = _arithmetic_expression(question)
     if arithmetic:

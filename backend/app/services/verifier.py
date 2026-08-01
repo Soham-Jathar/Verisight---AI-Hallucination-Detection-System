@@ -195,6 +195,11 @@ def extract_claims(answer: str) -> list[str]:
     )
     sentences = [sentence.replace(marker, ".") for sentence in re.split(r"(?<=[.!?])\s+", protected_answer)]
     boilerplate = re.compile(r"^(?:based on (?:the )?(?:provided|retrieved) evidence,?\s*)", flags=re.IGNORECASE)
+    insufficient_evidence = re.compile(
+        r"^(?:the )?(?:supplied|provided|retrieved) (?:information|evidence) "
+        r"(?:does not|cannot|is insufficient|is not sufficient)",
+        flags=re.IGNORECASE,
+    )
     claims: list[str] = []
     last_person: str | None = None
     person_subject = re.compile(
@@ -203,6 +208,8 @@ def extract_claims(answer: str) -> list[str]:
     )
     for sentence in sentences:
         cleaned = boilerplate.sub("", sentence).strip()
+        if insufficient_evidence.match(cleaned):
+            continue
         # Split only explicit clause boundaries. This complements the LLM prompt
         # without breaking natural lists such as "astronaut, engineer, and pilot".
         clauses = re.split(r"\s*;\s*|,?\s+and\s+(?=(?:he|she|they|it)\b)", cleaned, flags=re.IGNORECASE)
