@@ -30,7 +30,7 @@ def is_recommendation_request(question: str) -> bool:
         r"\b\d+\s+gifts?\s+(?:to|for)\b",
         r"\bgifts?\s+(?:to|for)\s+(?:a |my )?(?:friend|family|teacher|professor)\b",
         r"\b(?:must[- ]?read|books? to read|reading list)\b",
-        r"^\s*\d+\s+(?:[a-z-]+\s+){0,2}(?:books?|movies?|songs?|podcasts?)\s*[?!.,]*$",
+        r"^\s*\d+\s+(?:[a-z-]+\s+){0,3}(?:books?|movies?|songs?|podcasts?)\b",
         r"\b(?:give|list|show)\s+\d+\s+(?:sites|websites|resources|links)\b",
         r"\b(?:sites|websites|resources|links)\s+(?:for|related to|about)\b",
     )

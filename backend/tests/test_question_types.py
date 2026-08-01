@@ -16,6 +16,7 @@ def test_gift_ideas_are_not_fact_checked() -> None:
     assert is_recommendation_request("9 must read books")
     assert is_recommendation_request("5 financial books")
     assert is_recommendation_request("5 selfhelp book")
+    assert is_recommendation_request("5 mystery book for kids")
 
 
 def test_basic_math_uses_deterministic_verification() -> None:
