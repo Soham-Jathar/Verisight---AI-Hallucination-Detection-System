@@ -11,6 +11,7 @@ from app.schemas import ChatMessage
 def test_gift_ideas_are_not_fact_checked() -> None:
     assert is_recommendation_request("List 5 gift ideas for professor")
     assert is_recommendation_request("Give 5 sites related to calculus formulas")
+    assert is_recommendation_request("5 gift to give to friend")
 
 
 def test_basic_math_uses_deterministic_verification() -> None:
@@ -64,6 +65,11 @@ def test_math_follow_up_uses_previous_math_context() -> None:
 def test_secant_derivative_is_checked() -> None:
     answer = "The derivative of sec(x) is sec(x)tan(x)."
     claims = verify_math_answer("Derivation of secx", answer)
+    assert claims[0].status == "supported"
+
+
+def test_cotangent_integral_is_checked() -> None:
+    claims = verify_math_answer("integration of cotx", "ln(|sin(x)|) + C")
     assert claims[0].status == "supported"
 
 

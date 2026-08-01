@@ -27,6 +27,8 @@ def is_recommendation_request(question: str) -> bool:
         r"\brecommend(?:ation)?s?\b",
         r"\bwhat should i (?:buy|get|give)\b",
         r"\b(?:best|good) (?:gift|present)\b",
+        r"\b\d+\s+gifts?\s+(?:to|for)\b",
+        r"\bgifts?\s+(?:to|for)\s+(?:a |my )?(?:friend|family|teacher|professor)\b",
         r"\b(?:give|list|show)\s+\d+\s+(?:sites|websites|resources|links)\b",
         r"\b(?:sites|websites|resources|links)\s+(?:for|related to|about)\b",
     )

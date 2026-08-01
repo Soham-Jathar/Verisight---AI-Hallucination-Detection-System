@@ -65,6 +65,11 @@ def _linear_trig_checks(question: str, answer: str) -> list[ClaimAssessment]:
             lambda coefficient: f"{_number_label(coefficient)}sin(x)+c",
         ),
         (
+            r"(?:integral|integration|integrate)(?:of)?(?P<coefficient>\d*)cot\(?x\)?",
+            "The integral of {coefficient}cot(x) is {coefficient}ln|sin(x)| + C.",
+            lambda coefficient: f"{_number_label(coefficient)}ln(|sin(x)|)+c",
+        ),
+        (
             r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)sin\(?x\)?",
             "The derivative of {coefficient}sin(x) is {coefficient}cos(x).",
             lambda coefficient: f"{_number_label(coefficient)}cos(x)",
