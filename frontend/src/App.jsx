@@ -10,6 +10,12 @@ const statusLabel = {
   unsupported: 'Unsupported',
 }
 
+const providerLabel = {
+  gemini: 'Gemini',
+  groq: 'Groq',
+  openrouter: 'OpenRouter',
+}
+
 function createConversation() {
   return { id: crypto.randomUUID(), title: 'New conversation', messages: [] }
 }
@@ -93,10 +99,29 @@ function CorrectionCard({ correction }) {
   </section>
 }
 
+function ComparisonCard({ comparisons }) {
+  if (!comparisons || comparisons.length < 2) return null
+  return <section className="comparison-card">
+    <p className="comparison-label">Model comparison</p>
+    <div className="comparison-grid">
+      {comparisons.map((item) => {
+        const reliability = item.reliability_score == null ? null : Math.round(item.reliability_score * 100)
+        const supported = item.claims?.filter((claim) => claim.status === 'supported').length ?? 0
+        return <article className="comparison-model" key={item.provider}>
+          <header><strong>{providerLabel[item.provider] ?? item.provider}</strong><span>{reliability === null ? 'Not verified' : `${reliability}% reliable`}</span></header>
+          <small>{item.model}</small>
+          <p>{item.answer}</p>
+          <em>{supported}/{item.claims?.length ?? 0} claims supported</em>
+        </article>
+      })}
+    </div>
+  </section>
+}
+
 function MessageBubble({ message }) {
   if (message.role === 'user') return <article className="message user-message"><p>{message.content}</p></article>
   if (message.pending) return <article className="message assistant-message loading-message"><span className="assistant-avatar">V</span><div><p>Generating and checking sources<span className="typing-dots">...</span></p></div></article>
-  return <article className="message assistant-message"><span className="assistant-avatar">V</span><div className="assistant-copy"><p>{message.content}</p>{message.model && <small>{message.model}</small>}<CorrectionCard correction={message.verification?.correction} /><VerificationCard result={message.verification} /></div></article>
+  return <article className="message assistant-message"><span className="assistant-avatar">V</span><div className="assistant-copy"><p>{message.content}</p>{message.model && <small>{message.model}</small>}<ComparisonCard comparisons={message.verification?.comparisons} /><CorrectionCard correction={message.verification?.correction} /><VerificationCard result={message.verification} /></div></article>
 }
 
 function App() {

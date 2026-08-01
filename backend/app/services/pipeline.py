@@ -85,7 +85,8 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         selected = [
             provider.id
             for provider in provider_info(settings)
-            if provider.id != LLMProvider.EVIDENCE and provider.configured
+            if provider.id not in {LLMProvider.EVIDENCE, LLMProvider.COMPARE}
+            and provider.configured
         ]
         if len(selected) < 2:
             raise HTTPException(

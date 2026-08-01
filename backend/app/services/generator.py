@@ -12,11 +12,12 @@ PROVIDER_LABELS = {
     LLMProvider.GEMINI: "Google Gemini",
     LLMProvider.GROQ: "Groq",
     LLMProvider.OPENROUTER: "OpenRouter",
+    LLMProvider.COMPARE: "Compare configured models",
 }
 
 
 def provider_info(settings: Settings) -> list[ProviderInfo]:
-    return [
+    providers = [
         ProviderInfo(
             id=LLMProvider.EVIDENCE,
             label=PROVIDER_LABELS[LLMProvider.EVIDENCE],
@@ -42,6 +43,20 @@ def provider_info(settings: Settings) -> list[ProviderInfo]:
             configured=bool(settings.openrouter_api_key),
         ),
     ]
+    configured_llms = sum(
+        provider.configured
+        for provider in providers
+        if provider.id not in {LLMProvider.EVIDENCE, LLMProvider.COMPARE}
+    )
+    providers.append(
+        ProviderInfo(
+            id=LLMProvider.COMPARE,
+            label=PROVIDER_LABELS[LLMProvider.COMPARE],
+            model=None,
+            configured=configured_llms >= 2,
+        )
+    )
+    return providers
 
 
 async def generate_answer(
