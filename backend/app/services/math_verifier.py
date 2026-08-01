@@ -65,19 +65,34 @@ def _linear_trig_checks(question: str, answer: str) -> list[ClaimAssessment]:
             lambda coefficient: f"{_number_label(coefficient)}sin(x)+c",
         ),
         (
-            r"(?:derivative|differentiate)(?:of)?(?P<coefficient>\d*)sin\(?x\)?",
+            r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)sin\(?x\)?",
             "The derivative of {coefficient}sin(x) is {coefficient}cos(x).",
             lambda coefficient: f"{_number_label(coefficient)}cos(x)",
         ),
         (
-            r"(?:derivative|differentiate)(?:of)?(?P<coefficient>\d*)cos\(?x\)?",
+            r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)cos\(?x\)?",
             "The derivative of {coefficient}cos(x) is -{coefficient}sin(x).",
             lambda coefficient: f"-{_number_label(coefficient)}sin(x)",
         ),
         (
-            r"(?:derivative|differentiate)(?:of)?(?P<coefficient>\d*)tan\(?x\)?",
+            r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)tan\(?x\)?",
             "The derivative of {coefficient}tan(x) is {coefficient}sec²(x).",
             lambda coefficient: f"{_number_label(coefficient)}sec²(x)",
+        ),
+        (
+            r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)sec\(?x\)?",
+            "The derivative of {coefficient}sec(x) is {coefficient}sec(x)tan(x).",
+            lambda coefficient: f"{_number_label(coefficient)}sec(x)tan(x)",
+        ),
+        (
+            r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)csc\(?x\)?",
+            "The derivative of {coefficient}csc(x) is -{coefficient}csc(x)cot(x).",
+            lambda coefficient: f"-{_number_label(coefficient)}csc(x)cot(x)",
+        ),
+        (
+            r"(?:derivative|differentiate|derivation)(?:of)?(?P<coefficient>\d*)cot\(?x\)?",
+            "The derivative of {coefficient}cot(x) is -{coefficient}csc²(x).",
+            lambda coefficient: f"-{_number_label(coefficient)}csc²(x)",
         ),
     )
     for pattern, label, expected in patterns:

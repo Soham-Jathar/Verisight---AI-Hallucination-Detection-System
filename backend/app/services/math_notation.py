@@ -14,6 +14,7 @@ def format_math_notation(text: str) -> str:
     """Convert common raw LaTeX fragments into readable Unicode notation."""
     formatted = text.replace("\\(", "").replace("\\)", "").replace("$", "")
     formatted = formatted.replace("\\left", "").replace("\\right", "")
+    formatted = formatted.replace("\\dfrac", "\\frac")
     formatted = re.sub(r"(?<=\d)\s*[x×]\s*(?=\d)", " × ", formatted)
     formatted = re.sub(
         r"\\frac\{x\^\{([^{}]+)\}\}\{([^{}]+)\}",
@@ -38,8 +39,12 @@ def format_math_notation(text: str) -> str:
         r"\sin": "sin",
         r"\cos": "cos",
         r"\tan": "tan",
+        r"\sec": "sec",
+        r"\csc": "csc",
+        r"\cot": "cot",
         r"\ln": "ln",
         r"\mathrm": "",
+        r"\text": "",
     }
     for latex, unicode_symbol in replacements.items():
         formatted = formatted.replace(latex, unicode_symbol)

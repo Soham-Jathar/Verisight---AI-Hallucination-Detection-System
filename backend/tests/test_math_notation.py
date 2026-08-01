@@ -13,3 +13,8 @@ def test_math_notation_formats_common_fraction_and_exponent() -> None:
 
 def test_math_notation_uses_multiplication_symbol_for_dimensions() -> None:
     assert format_math_notation("A 3x3 matrix") == "A 3 × 3 matrix"
+
+
+def test_math_notation_formats_secant_derivative_steps() -> None:
+    answer = r"$\frac{d}{dx}(\sec(x)) = \sec(x)\tan(x)$"
+    assert format_math_notation(answer) == "d/dx(sec(x)) = sec(x)tan(x)"

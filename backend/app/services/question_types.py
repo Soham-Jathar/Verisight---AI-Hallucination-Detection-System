@@ -10,6 +10,12 @@ MATH_SHORTHANDS = {
     "sine x": "sin(x)",
     "tanx": "tan(x)",
     "tangent x": "tan(x)",
+    "secx": "sec(x)",
+    "secant x": "sec(x)",
+    "cosecx": "csc(x)",
+    "cosecant x": "csc(x)",
+    "cotx": "cot(x)",
+    "cotangent x": "cot(x)",
 }
 
 
@@ -31,9 +37,10 @@ def is_math_question(question: str) -> bool:
     """Recognise questions better checked with deterministic math rules."""
     normalized = question.lower()
     return bool(
-        re.search(r"\b(?:integral|integration|integrate|derivative|differentiate|solve|calculate|evaluate|determinant)\b", normalized)
+        re.search(r"\b(?:integral|integration|integrate|derivative|differentiate|derivation|solve|calculate|evaluate|determinant)\b", normalized)
         or re.search(r"\b\d+(?:\.\d+)?\s*[+*/-]\s*\d+(?:\.\d+)?\b", normalized)
         or bool(re.search(r"\b\d+\s*!", normalized))
+        or bool(re.search(r"\b(?:sin|cos|tan|sec|csc|cot)\s*(?:\(\s*x\s*\)|x)(?=$|\s|[.,!?])", normalized))
     )
 
 

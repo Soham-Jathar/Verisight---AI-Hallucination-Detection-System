@@ -176,7 +176,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     correction = None
     uncertainty_score = None
     visible_evidence = select_verification_sources(claims, primary_evidence) if verification_applicable else []
-    if verification_applicable and primary_evidence and unsupported:
+    if verification_applicable and not math_question and primary_evidence and unsupported:
         try:
             corrected_answer, _ = await generate_correction(
                 request.question,

@@ -53,11 +53,18 @@ def test_three_by_three_determinant_formula_is_checked() -> None:
 
 def test_math_shorthand_is_normalized() -> None:
     assert normalize_math_shorthand("cosine x integration formula") == "cos(x) integration formula"
+    assert normalize_math_shorthand("Derivation of secx") == "Derivation of sec(x)"
 
 
 def test_math_follow_up_uses_previous_math_context() -> None:
     history = [ChatMessage(role="user", content="Formula for integration of cosinex and derivative of tanx")]
     assert resolve_math_follow_up("I asked for cosinex", history) == "What is the integration formula for cos(x)?"
+
+
+def test_secant_derivative_is_checked() -> None:
+    answer = "The derivative of sec(x) is sec(x)tan(x)."
+    claims = verify_math_answer("Derivation of secx", answer)
+    assert claims[0].status == "supported"
 
 
 def test_arithmetic_is_checked_without_web_evidence() -> None:
