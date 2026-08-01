@@ -13,7 +13,7 @@ from app.services.documents import document_evidence
 from app.services.question_types import (
     is_math_question,
     is_recommendation_request,
-    resolve_math_follow_up,
+    resolve_contextual_question,
 )
 from app.services.retrieval import retrieve_web_evidence
 from app.services.source_quality import enrich_source
@@ -78,7 +78,7 @@ async def _expand_uncertain_claim_evidence(
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
-    analysis_question = resolve_math_follow_up(request.question, request.history)
+    analysis_question = resolve_contextual_question(request.question, request.history)
     recommendation_request = is_recommendation_request(analysis_question)
     math_question = is_math_question(analysis_question)
     verification_applicable = request.verify and not recommendation_request

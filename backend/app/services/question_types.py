@@ -29,6 +29,7 @@ def is_recommendation_request(question: str) -> bool:
         r"\b(?:best|good) (?:gift|present)\b",
         r"\b\d+\s+gifts?\s+(?:to|for)\b",
         r"\bgifts?\s+(?:to|for)\s+(?:a |my )?(?:friend|family|teacher|professor)\b",
+        r"\b(?:must[- ]?read|books? to read|reading list)\b",
         r"\b(?:give|list|show)\s+\d+\s+(?:sites|websites|resources|links)\b",
         r"\b(?:sites|websites|resources|links)\s+(?:for|related to|about)\b",
     )
@@ -72,3 +73,22 @@ def resolve_math_follow_up(question: str, history) -> str:
     if re.search(r"\b(?:derivative|differentiate)\b", previous, flags=re.IGNORECASE):
         return f"What is the derivative of {expression}?"
     return current
+
+
+def resolve_contextual_question(question: str, history) -> str:
+    """Resolve short book follow-ups after preserving the maths follow-up path."""
+    resolved = resolve_math_follow_up(question, history)
+    if resolved != normalize_math_shorthand(question):
+        return resolved
+
+    if not re.search(r"\b(?:autobiography|novel|series)\s+(?:one|book|version)\b", question, flags=re.IGNORECASE):
+        return resolved
+
+    for message in reversed(history or []):
+        if getattr(message, "role", None) != "user":
+            continue
+        match = re.search(r"\bauthor\s+of\s+(.+?)[?!.,]*$", message.content, flags=re.IGNORECASE)
+        if match:
+            title = match.group(1).strip()
+            return f"Who is the author of the autobiography titled {title}?"
+    return resolved

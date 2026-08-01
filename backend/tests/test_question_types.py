@@ -3,6 +3,7 @@ from app.services.question_types import (
     is_math_question,
     is_recommendation_request,
     normalize_math_shorthand,
+    resolve_contextual_question,
     resolve_math_follow_up,
 )
 from app.schemas import ChatMessage
@@ -12,6 +13,7 @@ def test_gift_ideas_are_not_fact_checked() -> None:
     assert is_recommendation_request("List 5 gift ideas for professor")
     assert is_recommendation_request("Give 5 sites related to calculus formulas")
     assert is_recommendation_request("5 gift to give to friend")
+    assert is_recommendation_request("9 must read books")
 
 
 def test_basic_math_uses_deterministic_verification() -> None:
@@ -60,6 +62,13 @@ def test_math_shorthand_is_normalized() -> None:
 def test_math_follow_up_uses_previous_math_context() -> None:
     history = [ChatMessage(role="user", content="Formula for integration of cosinex and derivative of tanx")]
     assert resolve_math_follow_up("I asked for cosinex", history) == "What is the integration formula for cos(x)?"
+
+
+def test_autobiography_follow_up_uses_last_book_title() -> None:
+    history = [ChatMessage(role="user", content="Author of Wings of Fire")]
+    assert resolve_contextual_question("I was asking about the autobiography one", history) == (
+        "Who is the author of the autobiography titled Wings of Fire?"
+    )
 
 
 def test_secant_derivative_is_checked() -> None:
