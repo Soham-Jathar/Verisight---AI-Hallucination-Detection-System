@@ -209,14 +209,25 @@ def _recent_answered_person(history) -> str | None:
     return None
 
 
+_MORE_INFORMATION_FOLLOW_UP = (
+    r"(?:"
+    r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?"
+    r"|give(?:\s+me)?\s+(?:more\s+)?(?:information|details)"
+    r"|more details"
+    r"|more information"
+    r"|what about (?:him|her|it|that|this)"
+    r")"
+)
+
+
 def _looks_like_general_follow_up(question: str) -> bool:
     normalized = question.strip().lower()
     if not normalized:
         return False
     return bool(
         re.search(r"\b(?:he|she|they|it|his|her|their|its|this|that|these|those)\b", normalized)
-        or re.fullmatch(r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?[.!?]*", normalized)
-        or re.fullmatch(r"(?:more details|more information|another author|what about (?:him|her|it|that|this))[.!?]*", normalized)
+        or re.fullmatch(rf"{_MORE_INFORMATION_FOLLOW_UP}[.!?]*", normalized)
+        or re.fullmatch(r"another author[.!?]*", normalized)
         or normalized.startswith(("and ", "also "))
     )
 
@@ -235,11 +246,7 @@ def _resolve_general_follow_up(question: str, history) -> str:
         return question
 
     normalized = question.strip()
-    if re.fullmatch(r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?[.!?]*", normalized, re.IGNORECASE) or re.fullmatch(
-        r"(?:more details|more information|what about (?:him|her|it|that|this))[.!?]*",
-        normalized,
-        re.IGNORECASE,
-    ):
+    if re.fullmatch(rf"{_MORE_INFORMATION_FOLLOW_UP}[.!?]*", normalized, re.IGNORECASE):
         return f"Provide more information about {topic}."
 
     possessive = f"{topic}'s"
