@@ -184,10 +184,14 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 settings=settings,
                 provider=primary.provider,
             )
-            correction = CorrectedAnswer(
-                answer=corrected_answer,
-                citations=select_citations(corrected_answer, primary_evidence),
-            )
+            correction_citations = select_citations(corrected_answer, primary_evidence)
+            # A correction without a directly relevant citation would look
+            # authoritative while being no safer than the original answer.
+            if correction_citations:
+                correction = CorrectedAnswer(
+                    answer=corrected_answer,
+                    citations=correction_citations,
+                )
         except ValueError:
             # A correction is helpful but must never hide the original analysis result.
             correction = None

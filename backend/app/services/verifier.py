@@ -37,6 +37,46 @@ def _evidence_match(claim: str, source: EvidenceSource) -> float:
     return 0.8 * coverage + 0.2 * _token_overlap(claim, evidence_text)
 
 
+def _source_host(source: EvidenceSource) -> str:
+    """Use a domain key to prevent duplicate citations from one website."""
+    match = re.search(r"^[a-z]+://(?:www\.)?([^/]+)", source.url, flags=re.IGNORECASE)
+    return match.group(1).lower() if match else source.url
+
+
+def _rank_claim_sources(
+    claim: str,
+    evidence: list[EvidenceSource],
+    *,
+    limit: int,
+    minimum_score: float,
+) -> list[tuple[float, EvidenceSource]]:
+    """Rank candidates by claim match, source quality, and domain diversity."""
+    ranked = sorted(
+        (
+            (
+                _evidence_match(claim, source) * (0.75 + 0.25 * source.credibility),
+                source,
+            )
+            for source in evidence
+        ),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    selected: list[tuple[float, EvidenceSource]] = []
+    seen_hosts: set[str] = set()
+    for score, source in ranked:
+        if score < minimum_score:
+            continue
+        host = _source_host(source)
+        if host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        selected.append((score, source))
+        if len(selected) == limit:
+            break
+    return selected
+
+
 def _lexical_support(claim: str, evidence: list[EvidenceSource]) -> float:
     """Conservative fallback for an NLI-neutral claim quoted almost verbatim."""
     claim_tokens = {
@@ -88,13 +128,33 @@ def _claim_evidence(
     limit: int = 2,
 ) -> list[EvidenceSource]:
     """Keep unrelated global sources out of an individual NLI decision."""
-    ranked = sorted(
+    ranked = _rank_claim_sources(claim, evidence, limit=limit, minimum_score=0.18)
+    if ranked:
+        return [source for _score, source in ranked]
+    fallback = sorted(
         ((_evidence_match(claim, source), source) for source in evidence),
         key=lambda item: item[0],
         reverse=True,
     )
-    focused = [source for score, source in ranked if score >= 0.18]
-    return focused[:limit] or ([ranked[0][1]] if ranked else [])
+    return [fallback[0][1]] if fallback else []
+
+
+def select_claim_citations(
+    claim: str,
+    evidence: list[EvidenceSource],
+    *,
+    limit: int = 2,
+) -> list[EvidenceSource]:
+    """Return only high-match, independent sources for one displayed claim."""
+    return [
+        source
+        for _score, source in _rank_claim_sources(
+            claim,
+            evidence,
+            limit=limit,
+            minimum_score=0.42,
+        )
+    ]
 
 
 @lru_cache
@@ -250,12 +310,20 @@ def verify_claims(answer: str, evidence: list[EvidenceSource]) -> list[ClaimAsse
                     status=status,
                     confidence=round(confidence, 2),
                     rationale=rationale,
+                    citations=select_claim_citations(claim, focused_evidence),
                 )
             )
         return assessments
     except NLIUnavailable as exc:
         return [
-            _fallback_assessment(claim, _claim_evidence(claim, evidence), str(exc))
+            _fallback_assessment(claim, _claim_evidence(claim, evidence), str(exc)).model_copy(
+                update={
+                    "citations": select_claim_citations(
+                        claim,
+                        _claim_evidence(claim, evidence),
+                    )
+                }
+            )
             for claim in claims
         ]
 
@@ -269,7 +337,8 @@ def select_verification_sources(
     """Show only evidence that was materially relevant to at least one claim."""
     best_by_url: dict[str, tuple[float, EvidenceSource]] = {}
     for assessment in claims:
-        for source in _claim_evidence(assessment.claim, evidence):
+        claim_sources = assessment.citations or select_claim_citations(assessment.claim, evidence)
+        for source in claim_sources:
             score = _evidence_match(assessment.claim, source) * (0.85 + 0.15 * source.credibility)
             previous = best_by_url.get(source.url)
             if previous is None or score > previous[0]:
@@ -287,13 +356,13 @@ def select_citations(answer: str, evidence: list[EvidenceSource], *, limit: int 
     """
     best_by_url: dict[str, tuple[float, EvidenceSource]] = {}
     for claim in extract_claims(answer):
-        for source in _claim_evidence(claim, evidence):
+        for source in select_claim_citations(claim, evidence):
             score = _evidence_match(claim, source) * (0.85 + 0.15 * source.credibility)
             previous = best_by_url.get(source.url)
             if previous is None or score > previous[0]:
                 best_by_url[source.url] = (score, source)
     ranked = sorted(best_by_url.values(), key=lambda item: item[0], reverse=True)
-    return [source for score, source in ranked[:limit] if score >= 0.30]
+    return [source for score, source in ranked[:limit] if score >= 0.42]
 
 
 def reliability_score(claims: list[ClaimAssessment]) -> float:

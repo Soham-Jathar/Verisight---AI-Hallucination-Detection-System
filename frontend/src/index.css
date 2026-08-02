@@ -33,6 +33,10 @@
 @media (max-width: 760px) { .chat-controls { gap: 8px; }.provider-select select { max-width: 96px; }.composer-row { gap: 6px; }.composer .utility-button { width: 37px; padding: 5px; overflow: hidden; color: transparent; }.composer .utility-button::first-letter { color: #cbd6ef; }.composer .send-button { min-width: 48px; padding-inline: 6px; } }
 
 .account-panel { display: grid; gap: 7px; margin-top: 14px; padding-top: 13px; border-top: 1px solid #a6b8e41a; }
+.claim-citations { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 9px; margin-top: 7px; color: #8292b2; }
+.claim-citations > span { color: #8292b2; font: 8px 'DM Mono', monospace; letter-spacing: .05em; text-transform: uppercase; }
+.claim-citations a, .claim-citations em { color: #bdc8ff; font-size: 9px; font-style: normal; text-decoration: none; }
+.claim-citations a:hover { text-decoration: underline; }
 .account-panel strong { overflow: hidden; color: #c7d2ea; font: 10px 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
 .account-panel button { width: fit-content; padding: 0; color: #aebcff; border: 0; background: transparent; font-size: 10px; text-decoration: underline; }
 .auth-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: #070b15bb; }

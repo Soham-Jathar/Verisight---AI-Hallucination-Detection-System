@@ -5,6 +5,7 @@ from app.services.retrieval import (
     _keywords,
     _relation_parts,
     _research_query,
+    _select_diverse_sources,
     _subject_query,
 )
 
@@ -51,3 +52,27 @@ def test_compound_ordinal_question_is_split_for_retrieval() -> None:
 def test_identity_question_with_achievement_request_keeps_person_subject() -> None:
     assert _subject_query("Who is Prakash Padukone and list his achievements?") == "Prakash Padukone"
     assert _research_query("Who is Prakash Padukone and list his achievements?") == "Prakash Padukone achievements career"
+
+
+def test_diverse_evidence_does_not_count_one_domain_multiple_times() -> None:
+    wikipedia_profile = EvidenceSource(
+        title="Python",
+        url="https://en.wikipedia.org/wiki/Python_(programming_language)",
+        snippet="Python is a programming language created by Guido van Rossum.",
+    )
+    wikipedia_history = EvidenceSource(
+        title="History of Python",
+        url="https://en.wikipedia.org/wiki/History_of_Python",
+        snippet="Python was first released in 1991.",
+    )
+    official = EvidenceSource(
+        title="Python history",
+        url="https://www.python.org/doc/essays/blurb/",
+        snippet="Python was created by Guido van Rossum.",
+    )
+
+    selected = _select_diverse_sources(
+        [(wikipedia_profile, 10.0), (wikipedia_history, 9.0), (official, 8.0)],
+        limit=3,
+    )
+    assert selected == [wikipedia_profile, official]

@@ -1,6 +1,7 @@
 from app.services.verifier import (
     extract_claims,
     reliability_score,
+    select_claim_citations,
     select_citations,
     select_verification_sources,
     verify_claims,
@@ -81,6 +82,31 @@ def test_citations_are_selected_per_corrected_claim() -> None:
 
     citations = select_citations(correction, [unrelated, india, united_states])
     assert citations == [india, united_states]
+
+
+def test_claim_citations_require_a_strong_match_and_distinct_domains() -> None:
+    claim = "Guido van Rossum created Python."
+    relevant = EvidenceSource(
+        title="Python",
+        url="https://www.python.org/doc/essays/blurb/",
+        snippet="Python was created by Guido van Rossum and first released in 1991.",
+        credibility=0.95,
+    )
+    duplicate_domain = EvidenceSource(
+        title="Python history",
+        url="https://www.python.org/history/",
+        snippet="Guido van Rossum created Python in the late 1980s.",
+        credibility=0.95,
+    )
+    unrelated = EvidenceSource(
+        title="JavaScript",
+        url="https://example.com/javascript",
+        snippet="JavaScript was created by Brendan Eich.",
+    )
+
+    citations = select_claim_citations(claim, [unrelated, duplicate_domain, relevant])
+    assert len(citations) == 1
+    assert citations[0].url.startswith("https://www.python.org/")
 
 
 def test_verify_claims_marks_supported_overlap() -> None:

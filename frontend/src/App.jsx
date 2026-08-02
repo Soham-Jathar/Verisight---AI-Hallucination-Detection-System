@@ -82,7 +82,9 @@ function VerificationCard({ result }) {
       <div className="claim-list">
         {result.claims.map((claim, index) => <article className="claim" key={`${claim.claim}-${index}`}>
           <span className={`claim-dot ${claim.status}`}></span>
-          <div><b>{claim.claim}</b><p>{statusLabel[claim.status]} · {Math.round(claim.confidence * 100)}% confidence</p><small>{claim.rationale}</small></div>
+          <div><b>{claim.claim}</b><p>{statusLabel[claim.status]} · {Math.round(claim.confidence * 100)}% confidence</p><small>{claim.rationale}</small>
+            {claim.citations?.length > 0 && <div className="claim-citations"><span>Evidence</span>{claim.citations.map((source, citationIndex) => <Citation key={`${source.url}-${citationIndex}`} source={source} index={citationIndex} />)}</div>}
+          </div>
         </article>)}
       </div>
       {result.evidence?.length > 0 && <div className="citations"><span>Sources</span>

@@ -248,6 +248,36 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
     return score
 
 
+def _source_host(source: EvidenceSource) -> str:
+    """Return a stable domain key used to avoid one-site evidence piles."""
+    return urlparse(source.url).netloc.lower().removeprefix("www.") or source.url
+
+
+def _select_diverse_sources(
+    ranked: list[tuple[EvidenceSource, float]],
+    *,
+    limit: int,
+) -> list[EvidenceSource]:
+    """Keep the strongest evidence while preferring independent domains.
+
+    Search engines frequently return several pages from the same site. Those
+    pages can be useful internally, but showing them as separate citations
+    overstates agreement. The final evidence list contains one source per
+    domain, ordered by topic relevance and source quality.
+    """
+    selected: list[EvidenceSource] = []
+    seen_hosts: set[str] = set()
+    for source, _score in ranked:
+        host = _source_host(source)
+        if host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        selected.append(source)
+        if len(selected) == limit:
+            break
+    return selected
+
+
 def _is_citable_url(url: str) -> bool:
     """Do not present search-engine redirect pages as evidence citations."""
     parsed = urlparse(url)
@@ -695,9 +725,9 @@ async def retrieve_web_evidence(
     best_score = ranked[0][1]
     # Keeping loose matches here caused unrelated pages (for example, a product
     # page instead of a company's founder page) to appear as citations.
-    minimum_score = max(2.0, best_score * 0.70)
-    focused = [source for source, score in ranked if score >= minimum_score]
-    return focused[:2]
+    minimum_score = max(2.5, best_score * 0.62)
+    focused = [(source, score) for source, score in ranked if score >= minimum_score]
+    return _select_diverse_sources(focused, limit=3)
 
 
 def build_evidence_answer(question: str, evidence: list[EvidenceSource]) -> str:
