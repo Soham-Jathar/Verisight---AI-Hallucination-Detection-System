@@ -153,6 +153,18 @@ def test_general_follow_up_accepts_give_more_information_wording() -> None:
     assert resolve_contextual_question("Give more information", history) == "Provide more information about Python programming."
 
 
+def test_contextual_alternative_request_keeps_the_previous_topic() -> None:
+    history = [
+        ChatMessage(role="user", content="Who created Vercel?"),
+        ChatMessage(role="assistant", content="Guillermo Rauch founded Vercel."),
+    ]
+
+    routed = route_request("Give alternative for this", history)
+
+    assert routed.question == "Recommend alternatives to Vercel."
+    assert routed.kind == RequestKind.RECOMMENDATION
+
+
 def test_another_author_becomes_a_recommendation_based_on_the_previous_answer() -> None:
     history = [
         ChatMessage(role="user", content="Author of Life After Life"),

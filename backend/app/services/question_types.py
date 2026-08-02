@@ -218,6 +218,11 @@ _MORE_INFORMATION_FOLLOW_UP = (
     r"|what about (?:him|her|it|that|this)"
     r")"
 )
+_ALTERNATIVE_FOLLOW_UP = re.compile(
+    r"^\s*(?:give|list|show|suggest|recommend)\s+(?:me\s+)?(?:an?\s+|some\s+)?"
+    r"alternatives?\s+(?:for|to|of)\s+(?:it|this|that|these|those)\s*[.!?]*$",
+    re.IGNORECASE,
+)
 
 
 def _looks_like_general_follow_up(question: str) -> bool:
@@ -246,6 +251,10 @@ def _resolve_general_follow_up(question: str, history) -> str:
         return question
 
     normalized = question.strip()
+    if _ALTERNATIVE_FOLLOW_UP.fullmatch(normalized):
+        # Make the referent and the user's intent explicit. This avoids a model
+        # interpreting "Alternative for ..." as the name of an unrelated entity.
+        return f"Recommend alternatives to {topic}."
     if re.fullmatch(rf"{_MORE_INFORMATION_FOLLOW_UP}[.!?]*", normalized, re.IGNORECASE):
         return f"Provide more information about {topic}."
 
