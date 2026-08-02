@@ -135,6 +135,19 @@ def test_book_follow_up_is_routed_as_a_complete_factual_question() -> None:
     assert routed.question == "Who is the author of the autobiography titled Wings of Fire?"
 
 
+def test_general_follow_up_resolves_pronouns_using_the_recent_topic() -> None:
+    history = [
+        ChatMessage(role="user", content="Who is Kalpana Chawla?"),
+        ChatMessage(role="assistant", content="Kalpana Chawla was an astronaut."),
+    ]
+    assert resolve_contextual_question("When was she born?", history) == "When was Kalpana Chawla born?"
+
+
+def test_general_follow_up_resolves_an_implicit_request_for_more_information() -> None:
+    history = [ChatMessage(role="user", content="Who created the Python programming language?")]
+    assert resolve_contextual_question("Tell me more", history) == "Provide more information about the Python programming language."
+
+
 def test_secant_derivative_is_checked() -> None:
     answer = "The derivative of sec(x) is sec(x)tan(x)."
     claims = verify_math_answer("Derivation of secx", answer)

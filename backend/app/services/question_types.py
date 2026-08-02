@@ -167,8 +167,74 @@ def _recent_book_title(history) -> str | None:
     return None
 
 
+def _topic_from_question(question: str) -> str | None:
+    """Extract the subject of the most recent user question for a follow-up."""
+    cleaned = question.strip().rstrip("?!.")
+    patterns = (
+        r"^\s*who\s+(?:is|was)\s+(.+?)(?=\s+(?:and|with|including)\b|$)",
+        r"^\s*who\s+(?:created|invented|designed|founded)\s+(.+?)(?=\s+(?:and|with|including)\b|$)",
+        r"^\s*(?:tell me|give me information|explain)\s+(?:about\s+)?(.+?)(?=\s+(?:and|with|including)\b|$)",
+        r"^\s*what\s+is\s+(.+?)(?=\s+(?:and|with|including)\b|$)",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            topic = match.group(1).strip(" ,")
+            if len(topic) >= 2:
+                return topic
+    return None
+
+
+def _recent_topic(history) -> str | None:
+    for message in reversed(history or []):
+        if getattr(message, "role", None) != "user":
+            continue
+        topic = _topic_from_question(message.content)
+        if topic:
+            return topic
+    return None
+
+
+def _looks_like_general_follow_up(question: str) -> bool:
+    normalized = question.strip().lower()
+    if not normalized:
+        return False
+    return bool(
+        re.search(r"\b(?:he|she|they|it|his|her|their|its|this|that|these|those)\b", normalized)
+        or re.fullmatch(r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?[.!?]*", normalized)
+        or re.fullmatch(r"(?:more details|more information|what about (?:him|her|it|that|this))[.!?]*", normalized)
+        or normalized.startswith(("and ", "also "))
+    )
+
+
+def _resolve_general_follow_up(question: str, history) -> str:
+    """Make references in a short follow-up explicit for generation and search."""
+    if not _looks_like_general_follow_up(question):
+        return question
+    topic = _recent_topic(history)
+    if not topic:
+        return question
+
+    normalized = question.strip()
+    if re.fullmatch(r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?[.!?]*", normalized, re.IGNORECASE) or re.fullmatch(
+        r"(?:more details|more information|what about (?:him|her|it|that|this))[.!?]*",
+        normalized,
+        re.IGNORECASE,
+    ):
+        return f"Provide more information about {topic}."
+
+    possessive = f"{topic}'s"
+    resolved = re.sub(r"\b(?:his|her|their|its)\b", possessive, normalized, flags=re.IGNORECASE)
+    resolved = re.sub(r"\b(?:he|she|they|it|this|that|these|those)\b", topic, resolved, flags=re.IGNORECASE)
+    if resolved.lower().startswith("and "):
+        resolved = resolved[4:].strip()
+    elif resolved.lower().startswith("also "):
+        resolved = resolved[5:].strip()
+    return resolved
+
+
 def resolve_contextual_question(question: str, history) -> str:
-    """Resolve concise math and title follow-ups to their intended complete request."""
+    """Resolve concise math, title, and conversational follow-ups."""
     resolved = resolve_math_follow_up(question, history)
     if resolved != normalize_math_shorthand(question):
         return resolved
@@ -178,12 +244,12 @@ def resolve_contextual_question(question: str, history) -> str:
         question,
         flags=re.IGNORECASE,
     ):
-        return resolved
+        return _resolve_general_follow_up(resolved, history)
 
     title = _recent_book_title(history)
     if title:
         return f"Who is the author of the autobiography titled {title}?"
-    return resolved
+    return _resolve_general_follow_up(resolved, history)
 
 
 def route_request(question: str, history) -> RoutedRequest:
