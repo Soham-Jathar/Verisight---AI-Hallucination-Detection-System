@@ -149,6 +149,25 @@ def _provider_error(provider: str, error: httpx.HTTPStatusError) -> ValueError:
     )
 
 
+def _connection_error(provider: str, error: httpx.RequestError) -> ValueError:
+    """Make empty HTTP client errors understandable without exposing secrets."""
+    detail = str(error).strip()
+    cause = error.__cause__ or error.__context__
+    cause_detail = str(cause).strip() if cause else ""
+    error_type = type(error).__name__
+    if detail:
+        description = detail
+    elif cause_detail:
+        description = f"{type(cause).__name__}: {cause_detail}"
+    else:
+        description = error_type
+
+    return ValueError(
+        f"Could not reach {provider} ({description}). "
+        "Check your internet connection and any VPN, proxy, or firewall, then retry."
+    )
+
+
 async def _generate_with_openai_compatible(
     question: str,
     evidence: list[EvidenceSource],
@@ -217,7 +236,7 @@ async def _generate_with_openai_compatible(
     except httpx.HTTPStatusError as error:
         raise _provider_error("LLM provider", error) from error
     except httpx.RequestError as error:
-        raise ValueError(f"Could not reach the LLM provider: {error}") from error
+        raise _connection_error("the LLM provider", error) from error
 
     return data["choices"][0]["message"]["content"].strip(), model
 
@@ -274,7 +293,7 @@ async def _generate_with_gemini(
     except httpx.HTTPStatusError as error:
         raise _provider_error("Gemini", error) from error
     except httpx.RequestError as error:
-        raise ValueError(f"Could not reach Gemini: {error}") from error
+        raise _connection_error("Gemini", error) from error
 
     parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
     answer = "".join(part.get("text", "") for part in parts).strip()

@@ -1,9 +1,11 @@
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.schemas import EvidenceSource
 from app.services.pipeline import _merge_evidence
+from app.services.generator import _connection_error
 
 
 @pytest.fixture
@@ -66,3 +68,10 @@ def test_analyze_web_mode_contract(client: TestClient) -> None:
     assert payload["stage"] == "complete"
     assert isinstance(payload["message"], str)
     assert payload["message"]
+
+
+def test_empty_connection_error_keeps_a_useful_error_type() -> None:
+    error = _connection_error("Gemini", httpx.ConnectError(""))
+
+    assert "ConnectError" in str(error)
+    assert "VPN, proxy, or firewall" in str(error)
