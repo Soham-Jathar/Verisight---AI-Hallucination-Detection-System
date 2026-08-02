@@ -238,9 +238,45 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
     return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim."
 
 
-def extract_claims(answer: str) -> list[str]:
+def _winner_list_claims(answer: str, question: str) -> list[str]:
+    """Turn numbered winner lists into complete claims before NLI scoring.
+
+    A raw item such as ``1. Nethra Raghuraman`` is not a factual statement by
+    itself, so it used to be merged with the next number and falsely marked as
+    contradicted. The question supplies the missing relationship.
+    """
+    if not re.search(r"\b(?:winner|winners|won)\b", question, flags=re.IGNORECASE):
+        return []
+    items = re.findall(r"(?m)^\s*(?:[-*]|\d+[.)])\s+(.+?)\s*$", answer.strip())
+    if len(items) < 2:
+        return []
+
+    subject = re.sub(
+        r"\b(?:all|list|name|the|of|winner|winners|won|till|to|date|season|seasons)\b",
+        " ",
+        question,
+        flags=re.IGNORECASE,
+    )
+    subject = re.sub(r"\s+", " ", subject).strip(" ?!.,")
+    if not subject:
+        return []
+
+    claims: list[str] = []
+    for item in items:
+        name = re.sub(r"\s*\((?:season\s*)?\d+[^)]*\)", "", item, flags=re.IGNORECASE)
+        name = name.strip(" .")
+        if len(name) >= 3:
+            claims.append(f"{name} was a winner of {subject}.")
+    return claims[:6]
+
+
+def extract_claims(answer: str, question: str = "") -> list[str]:
     # Protect initialisms and titles before splitting sentences. Without this,
     # "earned an M.F.A. from Harvard" was incorrectly treated as two claims.
+    winner_claims = _winner_list_claims(answer, question)
+    if winner_claims:
+        return winner_claims
+
     marker = "<period>"
 
     def protect(match: re.Match[str]) -> str:
@@ -297,8 +333,13 @@ def _fallback_assessment(claim: str, evidence: list[EvidenceSource], reason: str
     )
 
 
-def verify_claims(answer: str, evidence: list[EvidenceSource]) -> list[ClaimAssessment]:
-    claims = extract_claims(answer)
+def verify_claims(
+    answer: str,
+    evidence: list[EvidenceSource],
+    *,
+    question: str = "",
+) -> list[ClaimAssessment]:
+    claims = extract_claims(answer, question)
     try:
         assessments: list[ClaimAssessment] = []
         for claim in claims:

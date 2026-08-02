@@ -133,7 +133,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         claims = (
             verify_math_answer(analysis_question, answer)
             if verification_applicable and math_question
-            else verify_claims(answer, analysis_evidence)
+            else verify_claims(answer, analysis_evidence, question=analysis_question)
             if verification_applicable
             else []
         )
@@ -149,7 +149,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 analysis_evidence,
                 settings=settings,
             )
-            claims = verify_claims(answer, analysis_evidence)
+            claims = verify_claims(answer, analysis_evidence, question=analysis_question)
         if index == 0:
             primary_evidence = analysis_evidence
             shared_evidence = analysis_evidence

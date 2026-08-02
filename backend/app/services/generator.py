@@ -274,7 +274,10 @@ async def _generate_with_gemini(
         f"{instruction}\n\nConversation so far:\n{_history_block(history)}\n\n"
         f"Latest question: {question}\n\nEvidence context:\n{_evidence_block(evidence)}"
     )
-    timeout = httpx.Timeout(settings.request_timeout_seconds)
+    # Gemini can be slower than the OpenAI-compatible providers. Give it a
+    # modestly longer response window, but do not silently retry a generation
+    # because that could consume a second request from the user's quota.
+    timeout = httpx.Timeout(settings.gemini_request_timeout_seconds)
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{settings.gemini_model}:generateContent?key={settings.gemini_api_key}"

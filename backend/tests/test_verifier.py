@@ -41,6 +41,16 @@ def test_extract_claims_ignores_evidence_refusal_sentence() -> None:
     assert extract_claims(answer) == ["C. K. Nayudu was the first Test captain of India."]
 
 
+def test_numbered_winner_list_becomes_complete_claims() -> None:
+    answer = "1. Nethra Raghuraman\n2. Anushka Manchanda\n3. Shabir Ahluwalia"
+
+    assert extract_claims(answer, "Khatron Ke Khiladi winners till date") == [
+        "Nethra Raghuraman was a winner of Khatron Ke Khiladi.",
+        "Anushka Manchanda was a winner of Khatron Ke Khiladi.",
+        "Shabir Ahluwalia was a winner of Khatron Ke Khiladi.",
+    ]
+
+
 def test_verification_sources_exclude_unrelated_pages() -> None:
     claim = ClaimAssessment(
         claim="Bjarne Stroustrup created C++.",

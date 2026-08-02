@@ -16,6 +16,26 @@ const providerLabel = {
   openrouter: 'OpenRouter',
 }
 
+async function readApiPayload(response) {
+  const body = await response.text()
+  if (!body) return {}
+  try { return JSON.parse(body) } catch { return { detail: body } }
+}
+
+function apiErrorMessage(payload, fallback) {
+  const detail = payload?.detail ?? payload?.message ?? payload?.error
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => item?.msg ?? item?.message ?? '').filter(Boolean)
+    if (messages.length) return messages.join('. ')
+  }
+  if (detail && typeof detail === 'object') {
+    if (typeof detail.message === 'string') return detail.message
+    if (typeof detail.error?.message === 'string') return detail.error.message
+  }
+  return fallback
+}
+
 function Citation({ source, index }) {
   const label = source.source_quality ?? 'Web source'
   const content = <>{`[${index + 1}] ${source.title}`}<small className="source-quality">{label}</small></>
@@ -74,6 +94,8 @@ function VerificationCard({ result }) {
   if (!result?.claims?.length) return null
   const reliability = Math.round((result.reliability_score ?? 0) * 100)
   const uncertainty = result.uncertainty_score == null ? null : Math.round(result.uncertainty_score * 100)
+  const citedUrls = new Set(result.claims.flatMap((claim) => (claim.citations ?? []).map((source) => source.url)))
+  const otherSources = (result.evidence ?? []).filter((source) => !citedUrls.has(source.url))
 
   return <details className="verification-card">
     <summary><span className="verification-dot"></span>Verification available<strong>{reliability}% reliable{uncertainty !== null ? ` · ${uncertainty}% uncertainty` : ''}</strong></summary>
@@ -87,8 +109,8 @@ function VerificationCard({ result }) {
           </div>
         </article>)}
       </div>
-      {result.evidence?.length > 0 && <div className="citations"><span>Sources</span>
-        {result.evidence.map((source, index) => <Citation key={`${source.url}-${index}`} source={source} index={index} />)}
+      {otherSources.length > 0 && <div className="citations"><span>Other sources</span>
+        {otherSources.map((source, index) => <Citation key={`${source.url}-${index}`} source={source} index={index} />)}
       </div>}
     </div>
   </details>
@@ -244,8 +266,8 @@ function App() {
       const formData = new FormData()
       formData.append('file', file)
       const response = await fetch(`${API_URL}/api/documents`, { method: 'POST', body: formData })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail ?? 'PDF upload failed.')
+      const payload = await readApiPayload(response)
+      if (!response.ok) throw new Error(apiErrorMessage(payload, 'PDF upload failed.'))
       setDocument(payload)
       setEvidenceMode('document')
     } catch (uploadError) { setError(uploadError.message) } finally { setUploading(false) }
@@ -287,8 +309,8 @@ function App() {
     setError('')
     try {
       const response = await fetch(`${API_URL}/api/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, provider, mode: evidenceMode, verify: verifyEnabled, measure_uncertainty: uncertaintyEnabled, history, document_id: document?.id ?? null }) })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail ?? 'The analysis request failed.')
+      const payload = await readApiPayload(response)
+      if (!response.ok) throw new Error(apiErrorMessage(payload, 'The analysis request failed.'))
       const assistantMessage = { id: crypto.randomUUID(), role: 'assistant', content: payload.answer ?? 'I could not generate an answer.', model: payload.model, verification: verifyEnabled ? payload : null }
       const completedConversation = {
         ...activeConversation,
@@ -299,7 +321,7 @@ function App() {
       void persistConversation(completedConversation)
     } catch (requestError) {
       setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, messages: conversation.messages.filter((message) => message.id !== pendingMessage.id) } : conversation))
-      setError(requestError.message)
+      setError(requestError instanceof Error ? requestError.message : 'The analysis request failed.')
     } finally { setLoading(false) }
   }
 
