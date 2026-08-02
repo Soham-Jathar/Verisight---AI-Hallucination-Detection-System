@@ -131,3 +131,37 @@ def test_verify_claims_marks_supported_overlap() -> None:
     claims = verify_claims(answer, evidence)
     assert claims[0].status == "supported"
     assert reliability_score(claims) > 0.5
+
+
+def test_reliability_rewards_credible_and_independent_evidence() -> None:
+    high_quality = ClaimAssessment(
+        claim="Python was created by Guido van Rossum.",
+        status="supported",
+        confidence=0.90,
+        rationale="Supported.",
+        evidence_quality=0.95,
+        source_agreement=1.0,
+    )
+    lower_quality = ClaimAssessment(
+        claim="Python was created by Guido van Rossum.",
+        status="supported",
+        confidence=0.90,
+        rationale="Supported.",
+        evidence_quality=0.35,
+        source_agreement=0.60,
+    )
+
+    assert reliability_score([high_quality]) > reliability_score([lower_quality])
+
+
+def test_unsupported_claim_never_receives_reliability_from_source_quality() -> None:
+    unsupported = ClaimAssessment(
+        claim="Python was created by someone else.",
+        status="unsupported",
+        confidence=1.0,
+        rationale="Contradicted.",
+        evidence_quality=0.95,
+        source_agreement=1.0,
+    )
+
+    assert reliability_score([unsupported]) == 0.0

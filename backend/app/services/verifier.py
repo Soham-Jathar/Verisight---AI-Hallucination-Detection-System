@@ -139,6 +139,36 @@ def _claim_evidence(
     return [fallback[0][1]] if fallback else []
 
 
+def _evidence_quality(evidence: list[EvidenceSource]) -> float:
+    """Average quality of the independent sources used for one claim."""
+    if not evidence:
+        return 0.0
+    return round(sum(source.credibility for source in evidence) / len(evidence), 2)
+
+
+def _source_agreement(scores: list[dict[str, float]], evidence: list[EvidenceSource]) -> float:
+    """Estimate corroboration from NLI verdicts and independent source domains."""
+    if not evidence:
+        return 0.0
+
+    entailment_votes = sum(
+        score["entailment"] >= 0.55 and score["entailment"] > score["contradiction"]
+        for score in scores
+    )
+    contradiction_votes = sum(
+        score["contradiction"] >= 0.55 and score["contradiction"] > score["entailment"]
+        for score in scores
+    )
+    decisive_consensus = (
+        max(entailment_votes, contradiction_votes) / len(scores)
+        if entailment_votes or contradiction_votes
+        else 0.5
+    )
+    independent_domains = len({_source_host(source) for source in evidence})
+    diversity = min(1.0, 0.60 + 0.20 * max(0, independent_domains - 1))
+    return round(0.70 * decisive_consensus + 0.30 * diversity, 2)
+
+
 def select_claim_citations(
     claim: str,
     evidence: list[EvidenceSource],
@@ -192,9 +222,9 @@ def _score_labels(model, scores: list[float]) -> dict[str, float]:
     return mapped
 
 
-def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float, str]:
+def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float, str, float]:
     if not evidence:
-        return "unsupported", 0.0, "No evidence source was available for this claim."
+        return "unsupported", 0.0, "No evidence source was available for this claim.", 0.0
 
     model = _nli_model()
     pairs = [(_claim_evidence_excerpt(claim, source), claim) for source in evidence]
@@ -213,6 +243,7 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         score["contradiction"] >= 0.55 and score["contradiction"] > score["entailment"]
         for score in scores
     )
+    agreement = _source_agreement(scores, evidence)
 
     # A single mismatched source must not turn a factual answer into a false
     # hallucination. With multiple sources, require agreement before returning
@@ -222,20 +253,20 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         and contradiction_votes > entailment_votes
         and (len(scores) == 1 or contradiction_votes >= 2)
     ):
-        return "unsupported", best_contradiction, "An NLI model found the claim contradicted by retrieved evidence."
+        return "unsupported", best_contradiction, "An NLI model found the claim contradicted by retrieved evidence.", agreement
     if (
         best_entailment >= 0.55
         and entailment_votes > contradiction_votes
         and best_entailment >= best_neutral
     ):
-        return "supported", best_entailment, "An NLI model found the claim entailed by retrieved evidence."
+        return "supported", best_entailment, "An NLI model found the claim entailed by retrieved evidence.", agreement
     if entailment_votes and contradiction_votes:
-        return "uncertain", max(best_entailment, best_contradiction), "Retrieved sources do not agree strongly enough to verify this claim."
+        return "uncertain", max(best_entailment, best_contradiction), "Retrieved sources do not agree strongly enough to verify this claim.", agreement
     lexical_support = _lexical_support(claim, evidence)
     if lexical_support >= 0.68 and not contradiction_votes:
         confidence = min(0.92, 0.55 + 0.45 * lexical_support)
-        return "supported", confidence, "Retrieved evidence closely matches the factual content of this claim."
-    return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim."
+        return "supported", confidence, "Retrieved evidence closely matches the factual content of this claim.", agreement
+    return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim.", agreement
 
 
 def _winner_list_claims(answer: str, question: str) -> list[str]:
@@ -330,6 +361,8 @@ def _fallback_assessment(claim: str, evidence: list[EvidenceSource], reason: str
         status=status,
         confidence=round(overlap, 2),
         rationale=f"{reason} Keyword evidence match was used as a fallback.",
+        evidence_quality=_evidence_quality(evidence),
+        source_agreement=round(0.60 + 0.20 * max(0, len({_source_host(source) for source in evidence}) - 1), 2) if evidence else 0.0,
     )
 
 
@@ -344,14 +377,17 @@ def verify_claims(
         assessments: list[ClaimAssessment] = []
         for claim in claims:
             focused_evidence = _claim_evidence(claim, evidence)
-            status, confidence, rationale = _nli_verdict(claim, focused_evidence)
+            status, confidence, rationale, agreement = _nli_verdict(claim, focused_evidence)
+            citations = select_claim_citations(claim, focused_evidence)
             assessments.append(
                 ClaimAssessment(
                     claim=claim,
                     status=status,
                     confidence=round(confidence, 2),
                     rationale=rationale,
-                    citations=select_claim_citations(claim, focused_evidence),
+                    citations=citations,
+                    evidence_quality=_evidence_quality(citations or focused_evidence),
+                    source_agreement=agreement,
                 )
             )
         return assessments
@@ -410,5 +446,13 @@ def reliability_score(claims: list[ClaimAssessment]) -> float:
     if not claims:
         return 0.0
     weights = {"supported": 1.0, "uncertain": 0.5, "unsupported": 0.0}
-    total = sum(weights[claim.status] * claim.confidence for claim in claims)
+    total = 0.0
+    for claim in claims:
+        # The verdict remains dominant. Source quality and agreement make a
+        # small, transparent adjustment without allowing a good source to
+        # turn an unsupported claim into a reliable one.
+        quality = claim.evidence_quality if claim.evidence_quality is not None else 1.0
+        agreement = claim.source_agreement if claim.source_agreement is not None else 1.0
+        evidence_factor = 0.85 + 0.10 * quality + 0.05 * agreement
+        total += weights[claim.status] * claim.confidence * evidence_factor
     return round(total / len(claims), 2)

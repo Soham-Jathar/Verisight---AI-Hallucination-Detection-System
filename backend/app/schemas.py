@@ -54,6 +54,8 @@ class ClaimAssessment(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     rationale: str
     citations: list[EvidenceSource] = Field(default_factory=list)
+    evidence_quality: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_agreement: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class ProviderInfo(BaseModel):
