@@ -18,6 +18,7 @@ from app.services.retrieval import retrieve_web_evidence
 from app.services.source_quality import enrich_source
 from app.services.uncertainty import estimate_uncertainty
 from app.services.verifier import (
+    limit_factual_answer,
     reliability_score,
     select_citations,
     select_verification_sources,
@@ -127,6 +128,8 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             )
             if math_question:
                 answer = format_math_notation(answer)
+            elif verification_applicable and not recommendation_request:
+                answer = limit_factual_answer(answer, question=analysis_question)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         analysis_evidence = list(shared_evidence)

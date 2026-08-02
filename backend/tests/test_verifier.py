@@ -1,5 +1,6 @@
 from app.services.verifier import (
     extract_claims,
+    limit_factual_answer,
     reliability_score,
     select_claim_citations,
     select_citations,
@@ -13,6 +14,25 @@ def test_extract_claims_splits_sentences() -> None:
     answer = "Python was created by Guido van Rossum. It first appeared in 1991."
     claims = extract_claims(answer)
     assert len(claims) == 2
+
+
+def test_factual_answer_is_trimmed_to_the_verifiable_claim_limit() -> None:
+    answer = " ".join(
+        [
+            "The first factual statement contains enough detail to verify.",
+            "The second factual statement contains enough detail to verify.",
+            "The third factual statement contains enough detail to verify.",
+            "The fourth factual statement contains enough detail to verify.",
+            "The fifth factual statement contains enough detail to verify.",
+            "The sixth factual statement contains enough detail to verify.",
+            "The seventh factual statement must not be displayed unverified.",
+        ]
+    )
+
+    limited = limit_factual_answer(answer)
+
+    assert "seventh factual statement" not in limited
+    assert limited.count("statement contains enough detail") == 6
 
 
 def test_extract_claims_splits_explicit_pronoun_clause() -> None:

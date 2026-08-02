@@ -56,6 +56,18 @@ def test_factual_questions_keep_the_evidence_verification_path(question: str) ->
 @pytest.mark.parametrize(
     "question",
     [
+        "C++ or Java what is better?",
+        "Which is better for backend development, Java or Python?",
+        "Should I choose React or Angular?",
+    ],
+)
+def test_advice_comparisons_do_not_receive_a_factual_reliability_score(question: str) -> None:
+    assert route_request(question, []).kind == RequestKind.RECOMMENDATION
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
         "What is 9!",
         "Formula for integration of cosinex and derivative of tanx",
         "formula to calculate determinant of a 3x3 matrix",

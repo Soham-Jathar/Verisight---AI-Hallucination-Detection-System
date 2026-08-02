@@ -53,6 +53,12 @@ _CURATION_LANGUAGE = re.compile(
     r"must[- ]?read|books? to read|reading list|best|top)\b",
     re.IGNORECASE,
 )
+_ADVICE_COMPARISON = re.compile(
+    r"\b(?:which|what)\s+(?:is\s+)?(?:better|best)\b|"
+    r"\bshould\s+i\s+(?:choose|use|learn)\b|"
+    r"\b(?:better|best)\s+(?:for|to)\b",
+    re.IGNORECASE,
+)
 _RESOURCE_REQUEST = re.compile(
     r"\b(?:give|list|show|suggest|recommend)\s+(?:me\s+)?(?:\d+|one|two|three|four|five|some|a\s+few)\s+"
     r"(?:sites?|websites?|resources|links)\b",
@@ -78,6 +84,7 @@ def _looks_like_recommendation(question: str) -> bool:
     return bool(
         _COUNTED_LIST.search(normalized)
         or _CURATION_LANGUAGE.search(normalized)
+        or _ADVICE_COMPARISON.search(normalized)
         or _RESOURCE_REQUEST.search(normalized)
         or re.search(
             r"\b(?:sites?|websites?|resources|links)\s+(?:for|related to|about)\b",

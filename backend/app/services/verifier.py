@@ -269,7 +269,7 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
     return "uncertain", best_neutral, "Retrieved evidence does not clearly entail or contradict this claim.", agreement
 
 
-def _winner_list_claims(answer: str, question: str) -> list[str]:
+def _winner_list_claims(answer: str, question: str, *, limit: int = 6) -> list[str]:
     """Turn numbered winner lists into complete claims before NLI scoring.
 
     A raw item such as ``1. Nethra Raghuraman`` is not a factual statement by
@@ -298,13 +298,13 @@ def _winner_list_claims(answer: str, question: str) -> list[str]:
         name = name.strip(" .")
         if len(name) >= 3:
             claims.append(f"{name} was a winner of {subject}.")
-    return claims[:6]
+    return claims[:limit]
 
 
-def extract_claims(answer: str, question: str = "") -> list[str]:
+def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[str]:
     # Protect initialisms and titles before splitting sentences. Without this,
     # "earned an M.F.A. from Harvard" was incorrectly treated as two claims.
-    winner_claims = _winner_list_claims(answer, question)
+    winner_claims = _winner_list_claims(answer, question, limit=limit)
     if winner_claims:
         return winner_claims
 
@@ -350,7 +350,15 @@ def extract_claims(answer: str, question: str = "") -> list[str]:
             if match:
                 last_person = match.group(1)
             claims.append(claim)
-    return claims[:6] or [answer.strip()]
+    return claims[:limit] or [answer.strip()]
+
+
+def limit_factual_answer(answer: str, *, question: str = "", limit: int = 6) -> str:
+    """Ensure every displayed factual claim fits in one verification pass."""
+    claims = extract_claims(answer, question, limit=limit + 1)
+    if len(claims) <= limit:
+        return answer.strip()
+    return " ".join(claims[:limit])
 
 
 def _fallback_assessment(claim: str, evidence: list[EvidenceSource], reason: str) -> ClaimAssessment:
