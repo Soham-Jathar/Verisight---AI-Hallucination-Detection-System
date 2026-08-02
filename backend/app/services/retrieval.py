@@ -111,6 +111,15 @@ def _subject_query(question: str) -> str:
     relation = _relation_parts(question)
     if relation:
         return relation[0]
+    biographical_match = re.match(
+        r"\s*(?:when|where)\s+(?:was|did)\s+(.+?)\s+"
+        r"(?:born|die|died|study|work|live)\b",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if biographical_match:
+        subject = _canonical_subject(biographical_match.group(1))
+        return subject or question
     match = re.match(
         r"\s*who\s+is\s+(.+?)(?=\s+(?:and|with|including)\b|[?!.,]|$)",
         question,
@@ -133,6 +142,10 @@ def _research_query(question: str) -> str:
         return f'"{subject}" {relationship}'
     subject = _subject_query(question)
     if _is_identity_question(question):
+        if re.search(r"\bborn\b", question, flags=re.IGNORECASE):
+            return f"{subject} birth date birthplace"
+        if re.search(r"\b(?:die|died|death)\b", question, flags=re.IGNORECASE):
+            return f"{subject} death date"
         if re.search(r"\b(?:achievement|awards?|career|accomplishment)\b", question, flags=re.IGNORECASE):
             return f"{subject} achievements career"
         return f"{subject} biography"

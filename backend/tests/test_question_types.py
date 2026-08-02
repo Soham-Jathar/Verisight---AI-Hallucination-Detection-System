@@ -148,6 +148,16 @@ def test_general_follow_up_resolves_an_implicit_request_for_more_information() -
     assert resolve_contextual_question("Tell me more", history) == "Provide more information about the Python programming language."
 
 
+def test_another_author_becomes_a_recommendation_based_on_the_previous_answer() -> None:
+    history = [
+        ChatMessage(role="user", content="Author of Life After Life"),
+        ChatMessage(role="assistant", content="The author of Life After Life is Kate Atkinson."),
+    ]
+    routed = route_request("Another author", history)
+    assert routed.kind == RequestKind.RECOMMENDATION
+    assert routed.question == "Recommend another author similar to Kate Atkinson."
+
+
 def test_secant_derivative_is_checked() -> None:
     answer = "The derivative of sec(x) is sec(x)tan(x)."
     claims = verify_math_answer("Derivation of secx", answer)

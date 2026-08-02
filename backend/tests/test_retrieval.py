@@ -54,6 +54,11 @@ def test_identity_question_with_achievement_request_keeps_person_subject() -> No
     assert _research_query("Who is Prakash Padukone and list his achievements?") == "Prakash Padukone achievements career"
 
 
+def test_biographical_follow_up_uses_the_person_not_a_namesake_institution() -> None:
+    assert _subject_query("When was Kalpana Chawla born?") == "Kalpana Chawla"
+    assert _research_query("When was Kalpana Chawla born?") == "Kalpana Chawla birth date birthplace"
+
+
 def test_diverse_evidence_does_not_count_one_domain_multiple_times() -> None:
     wikipedia_profile = EvidenceSource(
         title="Python",

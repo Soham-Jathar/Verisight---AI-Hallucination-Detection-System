@@ -195,6 +195,20 @@ def _recent_topic(history) -> str | None:
     return None
 
 
+def _recent_answered_person(history) -> str | None:
+    """Find a named person from the preceding answer for 'another author' style requests."""
+    for message in reversed(history or []):
+        if getattr(message, "role", None) != "assistant":
+            continue
+        match = re.search(
+            r"\b(?:is|was)\s+([A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){1,3})\b",
+            message.content,
+        )
+        if match:
+            return match.group(1)
+    return None
+
+
 def _looks_like_general_follow_up(question: str) -> bool:
     normalized = question.strip().lower()
     if not normalized:
@@ -202,7 +216,7 @@ def _looks_like_general_follow_up(question: str) -> bool:
     return bool(
         re.search(r"\b(?:he|she|they|it|his|her|their|its|this|that|these|those)\b", normalized)
         or re.fullmatch(r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?[.!?]*", normalized)
-        or re.fullmatch(r"(?:more details|more information|what about (?:him|her|it|that|this))[.!?]*", normalized)
+        or re.fullmatch(r"(?:more details|more information|another author|what about (?:him|her|it|that|this))[.!?]*", normalized)
         or normalized.startswith(("and ", "also "))
     )
 
@@ -211,6 +225,11 @@ def _resolve_general_follow_up(question: str, history) -> str:
     """Make references in a short follow-up explicit for generation and search."""
     if not _looks_like_general_follow_up(question):
         return question
+    if re.fullmatch(r"another author[.!?]*", question.strip(), flags=re.IGNORECASE):
+        author = _recent_answered_person(history)
+        if author:
+            return f"Recommend another author similar to {author}."
+        return "Recommend another author."
     topic = _recent_topic(history)
     if not topic:
         return question
