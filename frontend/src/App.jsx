@@ -302,7 +302,11 @@ function App() {
     const conversationId = activeConversation.id
     const userMessage = { id: crypto.randomUUID(), role: 'user', content: question }
     const pendingMessage = { id: crypto.randomUUID(), role: 'assistant', pending: true }
-    const history = activeConversation.messages.map(({ role, content }) => ({ role, content }))
+    // The backend intentionally keeps a compact context window. Preserve the
+    // newest exchanges so long chat histories never exceed its validation limit.
+    const history = activeConversation.messages
+      .slice(-12)
+      .map(({ role, content }) => ({ role, content }))
     setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, title: conversation.messages.length === 0 ? question.slice(0, 42) : conversation.title, messages: [...conversation.messages, userMessage, pendingMessage] } : conversation))
     setDraft('')
     setLoading(true)
