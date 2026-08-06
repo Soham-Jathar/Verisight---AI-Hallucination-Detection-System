@@ -215,6 +215,11 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         message = "Verification is not applicable to preference-based recommendations."
     elif math_question and not claims:
         message = "This mathematical answer could not be checked by the available deterministic rules."
+    elif not claims:
+        message = (
+            "No externally verifiable factual claims were found in this response, "
+            "so no reliability score was calculated."
+        )
     elif math_question:
         message = (
             f"Analyzed {len(claims)} mathematical statement(s) using deterministic rules. "

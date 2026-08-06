@@ -301,6 +301,37 @@ def _winner_list_claims(answer: str, question: str, *, limit: int = 6) -> list[s
     return claims[:limit]
 
 
+def _is_conversational_sentence(sentence: str) -> bool:
+    """Identify responses that do not make an externally checkable claim.
+
+    A verifier should not label a greeting, acknowledgement, question, or a
+    personal preference as hallucinated merely because a web source cannot
+    entail it. This deliberately recognises only clear conversational forms;
+    factual sentences in a mixed response still proceed to NLI verification.
+    """
+    normalized = _normalize(sentence).strip(" .!?")
+    if not normalized or sentence.strip().endswith("?"):
+        return True
+
+    exact_phrases = {
+        "yes", "no", "okay", "ok", "sure", "of course", "certainly",
+        "absolutely", "thanks", "thank you", "you're welcome", "youre welcome", "your welcome",
+        "no problem", "my pleasure", "i see", "sounds good",
+    }
+    if normalized in exact_phrases:
+        return True
+
+    patterns = (
+        r"^(?:any(?:thing| other).{0,80}(?:help|know|question|ask).*)$",
+        r"^(?:please )?(?:specify|clarify|tell me)\b.*$",
+        r"^(?:i(?: am|'m) sorry|sorry)\b.*$",
+        r"^i (?:do not|dont|don't) (?:know|have) (?:that |the )?(?:information|detail|context).*$",
+        r"^i (?:like|love|prefer|enjoy|would say|believe|think)\b.*$",
+        r"^(?:that|this|it) (?:is|was) (?:great|interesting|fun|nice|wonderful|helpful)\b.*$",
+    )
+    return any(re.match(pattern, normalized, flags=re.IGNORECASE) for pattern in patterns)
+
+
 def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[str]:
     # Protect initialisms and titles before splitting sentences. Without this,
     # "earned an M.F.A. from Harvard" was incorrectly treated as two claims.
@@ -342,6 +373,8 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
         clauses = re.split(r"\s*;\s*|,?\s+and\s+(?=(?:he|she|they|it)\b)", cleaned, flags=re.IGNORECASE)
         for clause in clauses:
             claim = clause.strip()
+            if _is_conversational_sentence(claim):
+                continue
             if last_person and re.match(r"^(?:he|she)\b", claim, flags=re.IGNORECASE):
                 claim = re.sub(r"^(?:he|she)\b", last_person, claim, flags=re.IGNORECASE)
             if len(claim) < 20:
@@ -350,7 +383,7 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
             if match:
                 last_person = match.group(1)
             claims.append(claim)
-    return claims[:limit] or [answer.strip()]
+    return claims[:limit]
 
 
 def limit_factual_answer(answer: str, *, question: str = "", limit: int = 6) -> str:
@@ -381,6 +414,8 @@ def verify_claims(
     question: str = "",
 ) -> list[ClaimAssessment]:
     claims = extract_claims(answer, question)
+    if not claims:
+        return []
     try:
         assessments: list[ClaimAssessment] = []
         for claim in claims:

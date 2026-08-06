@@ -57,16 +57,27 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         # A generated answer is hallucinated if even one extracted factual claim
         # is contradicted. Otherwise retain an uncertain result when evidence is
         # incomplete rather than calling the whole answer supported.
-        statuses = [assessment.status for assessment in assessments]
-        predicted_status = (
-            "unsupported" if "unsupported" in statuses
-            else "uncertain" if "uncertain" in statuses
-            else "supported"
-        )
-        confidence = round(sum(assessment.confidence for assessment in assessments) / len(assessments), 2)
-        rationale = f"Answer-level result aggregated from {len(assessments)} extracted claim(s)."
-        evidence_quality = round(sum((assessment.evidence_quality or 0) for assessment in assessments) / len(assessments), 2)
-        source_agreement = round(sum((assessment.source_agreement or 0) for assessment in assessments) / len(assessments), 2)
+        if not assessments:
+            # Keep the three-class benchmark metric conservative: an answer
+            # with no factual assertion is not accepted as evidence-grounded.
+            # The product itself reports this as "not applicable", without a
+            # reliability score or hallucination label.
+            predicted_status = "uncertain"
+            confidence = 0.0
+            rationale = "No externally verifiable factual claim was extracted from this response."
+            evidence_quality = 0.0
+            source_agreement = 0.0
+        else:
+            statuses = [assessment.status for assessment in assessments]
+            predicted_status = (
+                "unsupported" if "unsupported" in statuses
+                else "uncertain" if "uncertain" in statuses
+                else "supported"
+            )
+            confidence = round(sum(assessment.confidence for assessment in assessments) / len(assessments), 2)
+            rationale = f"Answer-level result aggregated from {len(assessments)} extracted claim(s)."
+            evidence_quality = round(sum((assessment.evidence_quality or 0) for assessment in assessments) / len(assessments), 2)
+            source_agreement = round(sum((assessment.source_agreement or 0) for assessment in assessments) / len(assessments), 2)
     else:
         assessment = assessments[0]
         predicted_status = assessment.status

@@ -4,6 +4,13 @@ This module measures the **claim-verification layer**, not whether Gemini or
 Groq produces fluent answers. It runs fixed, labelled claim/evidence pairs so
 it does not consume LLM, Tavily, or search API quota.
 
+The verifier intentionally excludes purely conversational content such as
+greetings, acknowledgements, questions, and personal preferences. In the app,
+such a response is shown as **not requiring factual verification** rather than
+receiving a misleading reliability score. In the offline three-class benchmark,
+it remains a conservative `uncertain` result because it cannot be confirmed
+from evidence.
+
 ## What it measures
 
 - **Accuracy** — total correct claim verdicts.
