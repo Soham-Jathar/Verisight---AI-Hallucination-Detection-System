@@ -11,6 +11,11 @@ receiving a misleading reliability score. In the offline three-class benchmark,
 it remains a conservative `uncertain` result because it cannot be confirmed
 from evidence.
 
+For answer-level dialogue or QA benchmarks, each report also includes a
+**factual-claim subset**. It excludes responses where no externally verifiable
+claim was extracted, while the main accuracy and hallucination-risk metrics
+still include every response.
+
 ## What it measures
 
 - **Accuracy** — total correct claim verdicts.

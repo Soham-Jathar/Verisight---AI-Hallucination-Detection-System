@@ -103,6 +103,28 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def factual_claim_subset_metrics(results: list[dict[str, Any]]) -> dict[str, object]:
+    """Report verdict quality only where an externally checkable claim exists.
+
+    This is supplementary to the all-response result. It prevents greetings,
+    preferences, and other conversational-only turns from being mistaken for
+    evidence-verification failures while retaining their conservative outcome
+    in the overall safety metrics.
+    """
+    factual_results = [item for item in results if item["claim_count"] > 0]
+    excluded = len(results) - len(factual_results)
+    report: dict[str, object] = {
+        "cases": len(factual_results),
+        "excluded_non_factual_responses": excluded,
+    }
+    if factual_results:
+        report["strict_verdict_metrics"] = classification_metrics(
+            (item["expected_status"] for item in factual_results),
+            (item["predicted_status"] for item in factual_results),
+        )
+    return report
+
+
 def write_reports(results: list[dict[str, Any]], output_dir: Path, dataset: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -114,6 +136,7 @@ def write_reports(results: list[dict[str, Any]], output_dir: Path, dataset: Path
     )
     metrics["average_latency_ms"] = round(sum(item["latency_ms"] for item in results) / len(results), 2)
     if any(item["evaluation_level"] == "answer" for item in results):
+        metrics["factual_claim_subset"] = factual_claim_subset_metrics(results)
         metrics["answer_risk_detection"] = answer_risk_metrics(
             (item["expected_status"] for item in results),
             (item["predicted_status"] for item in results),
@@ -148,6 +171,7 @@ def main() -> int:
         (item["predicted_status"] for item in results),
     )
     if any(item["evaluation_level"] == "answer" for item in results):
+        metrics["factual_claim_subset"] = factual_claim_subset_metrics(results)
         metrics["answer_risk_detection"] = answer_risk_metrics(
             (item["expected_status"] for item in results),
             (item["predicted_status"] for item in results),
@@ -155,6 +179,20 @@ def main() -> int:
     average_latency = sum(item["latency_ms"] for item in results) / len(results)
     print(f"Evaluated {len(results)} claims")
     print(f"Accuracy: {metrics['accuracy']:.2%} | Macro F1: {metrics['macro_f1']:.2%}")
+    if factual_subset := metrics.get("factual_claim_subset"):
+        if factual_metrics := factual_subset.get("strict_verdict_metrics"):
+            print(
+                "Factual-claim subset: "
+                f"{factual_subset['cases']} cases "
+                f"({factual_subset['excluded_non_factual_responses']} non-factual responses excluded) | "
+                f"Accuracy {factual_metrics['accuracy']:.2%} | "
+                f"Macro F1 {factual_metrics['macro_f1']:.2%}"
+            )
+        else:
+            print(
+                "Factual-claim subset: 0 cases "
+                f"({factual_subset['excluded_non_factual_responses']} non-factual responses excluded)"
+            )
     if risk_metrics := metrics.get("answer_risk_detection"):
         print(
             "Hallucination-risk detection: "
