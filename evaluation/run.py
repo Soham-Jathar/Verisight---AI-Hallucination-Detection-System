@@ -136,6 +136,11 @@ def main() -> int:
         (item["expected_status"] for item in results),
         (item["predicted_status"] for item in results),
     )
+    if any(item["evaluation_level"] == "answer" for item in results):
+        metrics["answer_risk_detection"] = answer_risk_metrics(
+            (item["expected_status"] for item in results),
+            (item["predicted_status"] for item in results),
+        )
     average_latency = sum(item["latency_ms"] for item in results) / len(results)
     print(f"Evaluated {len(results)} claims")
     print(f"Accuracy: {metrics['accuracy']:.2%} | Macro F1: {metrics['macro_f1']:.2%}")
