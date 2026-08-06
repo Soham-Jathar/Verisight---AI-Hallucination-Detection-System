@@ -93,6 +93,24 @@ uses only fixed HaluEval evidence and makes no external requests.
 As with QA, use one dialogue subset for development and reserve a fresh,
 non-overlapping `--offset` range for the final reported result.
 
+Create separate dialogue development and held-out files. Do not use the
+splitter defaults here: those default filenames belong to the QA experiment.
+
+```powershell
+.\backend\.venv\Scripts\python.exe evaluation\split_dataset.py `
+  --input evaluation\datasets\halueval_dialogue.jsonl `
+  --dev-output evaluation\datasets\halueval_dialogue_dev.jsonl `
+  --test-output evaluation\datasets\halueval_dialogue_test.jsonl
+
+# Use this while investigating dialogue-verification improvements.
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_dialogue_dev.jsonl
+
+# Run only after dialogue improvements are final.
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_dialogue_test.jsonl
+```
+
 For HaluEval answer-level runs, reports include two valid views:
 
 - **Strict verdict metrics** — `supported`, `unsupported`, and `uncertain` are
