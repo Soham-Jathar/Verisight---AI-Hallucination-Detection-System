@@ -50,6 +50,29 @@ held-out dataset built from public benchmarks such as FEVER, HaluEval, or
 RAGTruth, document the source and split, and never tune thresholds on the same
 test cases used for the final score.
 
+## HaluEval QA benchmark
+
+HaluEval QA includes source knowledge, a grounded answer, and a deliberately
+hallucinated answer. The importer produces one supported and one unsupported
+answer-level case per source example. It uses only the provided benchmark
+evidence, so no LLM or web-search API calls are made during import or scoring.
+
+Download the official repository once, then convert a bounded held-out subset:
+
+```powershell
+git clone --depth 1 https://github.com/RUCAIBox/HaluEval.git evaluation\vendor\HaluEval
+
+.\backend\.venv\Scripts\python.exe evaluation\import_halueval.py `
+  --input evaluation\vendor\HaluEval\data\qa_data.json `
+  --limit 200
+
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_qa.jsonl
+```
+
+The 200 source examples become 400 answer-level cases. Keep the downloaded and
+converted public data out of Git; the project `.gitignore` already does this.
+
 ## Optional local dashboard
 
 Normal chats deliberately do not expose research metrics. To inspect the latest

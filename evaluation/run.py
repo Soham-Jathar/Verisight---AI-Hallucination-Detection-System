@@ -35,10 +35,12 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         item = json.loads(line)
-        required = {"id", "claim", "expected_status", "evidence"}
+        required = {"id", "expected_status", "evidence"}
         missing = required - item.keys()
         if missing:
             raise ValueError(f"Dataset line {line_number} is missing: {', '.join(sorted(missing))}")
+        if not item.get("claim") and not item.get("answer"):
+            raise ValueError(f"Dataset line {line_number} needs either a claim or an answer.")
         cases.append(item)
     if not cases:
         raise ValueError("The evaluation dataset has no cases.")
@@ -47,22 +49,45 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 
 def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     evidence = [EvidenceSource.model_validate(source) for source in case["evidence"]]
+    answer = case.get("answer") or case["claim"]
     started = time.perf_counter()
-    assessment = verify_claims(case["claim"], evidence, question=case.get("question", ""))[0]
+    assessments = verify_claims(answer, evidence, question=case.get("question", ""))
     latency_ms = round((time.perf_counter() - started) * 1000, 2)
+    if case.get("evaluation_level") == "answer":
+        # A generated answer is hallucinated if even one extracted factual claim
+        # is contradicted. Otherwise retain an uncertain result when evidence is
+        # incomplete rather than calling the whole answer supported.
+        statuses = [assessment.status for assessment in assessments]
+        predicted_status = (
+            "unsupported" if "unsupported" in statuses
+            else "uncertain" if "uncertain" in statuses
+            else "supported"
+        )
+        confidence = round(sum(assessment.confidence for assessment in assessments) / len(assessments), 2)
+        rationale = f"Answer-level result aggregated from {len(assessments)} extracted claim(s)."
+        evidence_quality = round(sum((assessment.evidence_quality or 0) for assessment in assessments) / len(assessments), 2)
+        source_agreement = round(sum((assessment.source_agreement or 0) for assessment in assessments) / len(assessments), 2)
+    else:
+        assessment = assessments[0]
+        predicted_status = assessment.status
+        confidence = assessment.confidence
+        rationale = assessment.rationale
+        evidence_quality = assessment.evidence_quality
+        source_agreement = assessment.source_agreement
     return {
         "id": case["id"],
         "category": case.get("category", "general"),
-        "claim": case["claim"],
+        "claim": case.get("claim") or answer,
         "expected_status": case["expected_status"],
-        "predicted_status": assessment.status,
-        "confidence": assessment.confidence,
-        "evidence_quality": assessment.evidence_quality,
-        "source_agreement": assessment.source_agreement,
+        "predicted_status": predicted_status,
+        "confidence": confidence,
+        "evidence_quality": evidence_quality,
+        "source_agreement": source_agreement,
         "latency_ms": latency_ms,
-        "correct": assessment.status == case["expected_status"],
-        "rationale": assessment.rationale,
+        "correct": predicted_status == case["expected_status"],
+        "rationale": rationale,
         "source_count": len(evidence),
+        "claim_count": len(assessments),
     }
 
 

@@ -49,10 +49,15 @@ def classification_metrics(
         }
         f1_values.append(f1)
 
+    evaluated_labels = [label for label in LABELS if per_label[label]["support"] > 0]
     return {
         "cases": len(actual),
         "accuracy": safe_divide(sum(truth == guess for truth, guess in zip(actual, guessed)), len(actual)),
-        "macro_f1": round(sum(f1_values) / len(f1_values), 4),
+        "macro_f1": round(
+            sum(per_label[label]["f1"] for label in evaluated_labels) / len(evaluated_labels),
+            4,
+        ),
+        "evaluated_labels": evaluated_labels,
         "per_label": per_label,
         "confusion_matrix": confusion,
         "expected_distribution": dict(Counter(actual)),

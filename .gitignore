@@ -10,6 +10,8 @@ frontend/dist/
 # Generated benchmark artifacts
 evaluation/__pycache__/
 evaluation/results/
+evaluation/vendor/
+evaluation/datasets/halueval_*.jsonl
 
 # Secrets and local settings
 .env
