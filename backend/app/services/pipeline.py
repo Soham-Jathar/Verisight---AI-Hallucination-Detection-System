@@ -59,22 +59,28 @@ async def _expand_uncertain_claim_evidence(
     evidence,
     *,
     settings: Settings,
+    document_id: str | None = None,
+    include_web: bool = False,
 ):
     """Retrieve focused evidence only for claims the first pass could not settle."""
     uncertain = [claim.claim for claim in claims if claim.status == "uncertain"][:4]
     if not uncertain:
         return evidence
 
+    document_results = [
+        document_evidence(document_id, claim, limit=2)
+        for claim in uncertain
+    ] if document_id else []
     searches = [
         retrieve_web_evidence(
             f"{question} Factual claim to verify: {claim}",
             settings=settings,
         )
         for claim in uncertain
-    ]
-    results = await asyncio.gather(*searches, return_exceptions=True)
+    ] if include_web else []
+    results = await asyncio.gather(*searches, return_exceptions=True) if searches else []
     successful = [result for result in results if isinstance(result, list)]
-    return _merge_evidence(evidence, *successful)
+    return _merge_evidence(evidence, *document_results, *successful)
 
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
@@ -143,7 +149,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
         if (
             verification_applicable
             and not math_question
-            and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}
+            and request.mode in {VerificationMode.WEB, VerificationMode.DOCUMENT, VerificationMode.HYBRID}
             and any(claim.status == "uncertain" for claim in claims)
         ):
             analysis_evidence = await _expand_uncertain_claim_evidence(
@@ -151,6 +157,8 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 claims,
                 analysis_evidence,
                 settings=settings,
+                document_id=request.document_id if request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID} else None,
+                include_web=request.mode in {VerificationMode.WEB, VerificationMode.HYBRID},
             )
             claims = verify_claims(answer, analysis_evidence, question=analysis_question)
         if index == 0:

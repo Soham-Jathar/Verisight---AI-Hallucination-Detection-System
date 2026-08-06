@@ -61,6 +61,16 @@ def test_extract_claims_ignores_evidence_refusal_sentence() -> None:
     assert extract_claims(answer) == ["C. K. Nayudu was the first Test captain of India."]
 
 
+def test_extract_claims_ignores_conversational_only_reply() -> None:
+    assert extract_claims("You're welcome. Anything else I can help with?") == []
+
+
+def test_extract_claims_keeps_fact_after_conversational_sentence() -> None:
+    assert extract_claims("Of course. Guido van Rossum created Python.") == [
+        "Guido van Rossum created Python."
+    ]
+
+
 def test_numbered_winner_list_becomes_complete_claims() -> None:
     answer = "1. Nethra Raghuraman\n2. Anushka Manchanda\n3. Shabir Ahluwalia"
 

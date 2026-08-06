@@ -12,6 +12,8 @@ from app.schemas import DocumentInfo, EvidenceSource
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_DOCUMENT_CHARACTERS = 100_000
+DOCUMENT_CHUNK_WORDS = 220
+DOCUMENT_CHUNK_OVERLAP_WORDS = 40
 _documents: dict[str, "StoredDocument"] = {}
 
 
@@ -19,6 +21,20 @@ _documents: dict[str, "StoredDocument"] = {}
 class StoredDocument:
     info: DocumentInfo
     text: str
+
+
+def _document_chunks(text: str) -> list[str]:
+    """Split a document into overlapping excerpts for local retrieval."""
+    words = text.split()
+    if len(words) <= DOCUMENT_CHUNK_WORDS:
+        return [text]
+
+    step = DOCUMENT_CHUNK_WORDS - DOCUMENT_CHUNK_OVERLAP_WORDS
+    return [
+        " ".join(words[start:start + DOCUMENT_CHUNK_WORDS])
+        for start in range(0, len(words), step)
+        if words[start:start + DOCUMENT_CHUNK_WORDS]
+    ]
 
 
 async def save_pdf(upload: UploadFile) -> DocumentInfo:
@@ -59,14 +75,19 @@ def document_evidence(document_id: str, question: str, *, limit: int = 4) -> lis
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The uploaded PDF is no longer available. Please upload it again.")
 
     terms = set(re.findall(r"[a-zA-Z0-9]{3,}", question.lower()))
-    sentences = re.split(r"(?<=[.!?])\s+|\n+", document.text)
     ranked = sorted(
-        ((len(terms.intersection(set(re.findall(r"[a-zA-Z0-9]{3,}", sentence.lower())))), sentence.strip()) for sentence in sentences if sentence.strip()),
-        key=lambda item: item[0],
+        (
+            (
+                len(terms.intersection(set(re.findall(r"[a-zA-Z0-9]{3,}", chunk.lower())))),
+                -index,
+                chunk,
+            )
+            for index, chunk in enumerate(_document_chunks(document.text))
+        ),
         reverse=True,
     )
-    snippets = [sentence for _, sentence in ranked[:limit] if sentence] or [document.text[:800]]
+    snippets = [chunk for _, _, chunk in ranked[:limit] if chunk] or [document.text[:1_500]]
     return [
-        EvidenceSource(title=document.info.filename, url=f"document://{document.info.id}", snippet=snippet[:900])
+        EvidenceSource(title=document.info.filename, url=f"document://{document.info.id}", snippet=snippet[:1_500])
         for snippet in snippets
     ]
