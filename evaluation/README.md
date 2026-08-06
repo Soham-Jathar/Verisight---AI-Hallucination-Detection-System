@@ -73,6 +73,17 @@ git clone --depth 1 https://github.com/RUCAIBox/HaluEval.git evaluation\vendor\H
 The 200 source examples become 400 answer-level cases. Keep the downloaded and
 converted public data out of Git; the project `.gitignore` already does this.
 
+For HaluEval answer-level runs, reports include two valid views:
+
+- **Strict verdict metrics** — `supported`, `unsupported`, and `uncertain` are
+  treated as separate outcomes.
+- **Hallucination-risk metrics** — both `unsupported` and `uncertain` count as
+  a risk flag, because the system did not accept the answer as supported.
+
+Use the strict score to evaluate verdict quality and the risk score to evaluate
+the detector’s ability to prevent potentially hallucinated answers from being
+accepted as factual.
+
 Before improving any verification thresholds, create a reproducible split:
 
 ```powershell

@@ -22,7 +22,7 @@ if str(BACKEND) not in sys.path:
 
 from app.schemas import EvidenceSource  # noqa: E402
 from app.services.verifier import verify_claims  # noqa: E402
-from metrics import classification_metrics  # noqa: E402
+from metrics import answer_risk_metrics, classification_metrics  # noqa: E402
 
 
 DEFAULT_DATASET = ROOT / "evaluation" / "datasets" / "starter_claims.jsonl"
@@ -77,6 +77,7 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": case["id"],
         "category": case.get("category", "general"),
+        "evaluation_level": case.get("evaluation_level", "claim"),
         "claim": case.get("claim") or answer,
         "expected_status": case["expected_status"],
         "predicted_status": predicted_status,
@@ -101,6 +102,11 @@ def write_reports(results: list[dict[str, Any]], output_dir: Path, dataset: Path
         (item["predicted_status"] for item in results),
     )
     metrics["average_latency_ms"] = round(sum(item["latency_ms"] for item in results) / len(results), 2)
+    if any(item["evaluation_level"] == "answer" for item in results):
+        metrics["answer_risk_detection"] = answer_risk_metrics(
+            (item["expected_status"] for item in results),
+            (item["predicted_status"] for item in results),
+        )
     metrics["dataset"] = str(dataset.relative_to(ROOT)) if dataset.is_relative_to(ROOT) else str(dataset)
     metrics["generated_at"] = datetime.now(UTC).isoformat()
 
@@ -133,6 +139,12 @@ def main() -> int:
     average_latency = sum(item["latency_ms"] for item in results) / len(results)
     print(f"Evaluated {len(results)} claims")
     print(f"Accuracy: {metrics['accuracy']:.2%} | Macro F1: {metrics['macro_f1']:.2%}")
+    if risk_metrics := metrics.get("answer_risk_detection"):
+        print(
+            "Hallucination-risk detection: "
+            f"precision {risk_metrics['precision']:.2%} | "
+            f"recall {risk_metrics['recall']:.2%} | F1 {risk_metrics['f1']:.2%}"
+        )
     print(f"Average verification latency: {average_latency:.2f} ms")
     print(f"Reports written to: {report_path}")
     return 0

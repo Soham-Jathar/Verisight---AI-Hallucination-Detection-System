@@ -63,3 +63,48 @@ def classification_metrics(
         "expected_distribution": dict(Counter(actual)),
         "predicted_distribution": dict(Counter(guessed)),
     }
+
+
+def answer_risk_metrics(
+    expected: Iterable[str],
+    predicted: Iterable[str],
+) -> dict[str, float | int | dict[str, int]]:
+    """Score hallucination-risk detection for binary answer benchmarks.
+
+    HaluEval labels a whole answer as grounded or hallucinated. VeriSight has a
+    useful third outcome, ``uncertain``: it means the answer is not accepted as
+    supported. For safety-oriented answer checking, both uncertain and
+    unsupported answers are therefore treated as a risk flag.
+    """
+    actual = list(expected)
+    guessed = list(predicted)
+    if len(actual) != len(guessed):
+        raise ValueError("Expected and predicted label counts must match.")
+
+    true_positive = false_positive = true_negative = false_negative = 0
+    for truth, guess in zip(actual, guessed, strict=True):
+        expected_risk = truth == "unsupported"
+        predicted_risk = guess != "supported"
+        if expected_risk and predicted_risk:
+            true_positive += 1
+        elif not expected_risk and predicted_risk:
+            false_positive += 1
+        elif not expected_risk and not predicted_risk:
+            true_negative += 1
+        else:
+            false_negative += 1
+
+    precision = safe_divide(true_positive, true_positive + false_positive)
+    recall = safe_divide(true_positive, true_positive + false_negative)
+    return {
+        "accuracy": safe_divide(true_positive + true_negative, len(actual)),
+        "precision": precision,
+        "recall": recall,
+        "f1": safe_divide(2 * precision * recall, precision + recall),
+        "confusion": {
+            "true_positive": true_positive,
+            "false_positive": false_positive,
+            "true_negative": true_negative,
+            "false_negative": false_negative,
+        },
+    }
