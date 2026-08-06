@@ -73,6 +73,26 @@ git clone --depth 1 https://github.com/RUCAIBox/HaluEval.git evaluation\vendor\H
 The 200 source examples become 400 answer-level cases. Keep the downloaded and
 converted public data out of Git; the project `.gitignore` already does this.
 
+## HaluEval dialogue benchmark
+
+Dialogue uses the same evidence-grounded verdict pipeline, but each example
+also includes the preceding conversation. The importer preserves that history
+in every converted case, allowing failures to be reviewed in context. It still
+uses only fixed HaluEval evidence and makes no external requests.
+
+```powershell
+.\backend\.venv\Scripts\python.exe evaluation\import_halueval.py `
+  --task dialogue `
+  --input evaluation\vendor\HaluEval\data\dialogue_data.json `
+  --limit 200
+
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_dialogue.jsonl
+```
+
+As with QA, use one dialogue subset for development and reserve a fresh,
+non-overlapping `--offset` range for the final reported result.
+
 For HaluEval answer-level runs, reports include two valid views:
 
 - **Strict verdict metrics** — `supported`, `unsupported`, and `uncertain` are
