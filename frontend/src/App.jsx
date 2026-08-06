@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { loadSavedConversations, saveConversation } from './lib/conversations'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
+import EvaluationDashboard from './EvaluationDashboard'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const evaluationDashboardEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_EVALUATION_DASHBOARD === 'true'
 
 const statusLabel = {
   supported: 'Supported',
@@ -171,6 +173,10 @@ function App() {
   const [user, setUser] = useState(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [view, setView] = useState('chat')
+  const [evaluationReport, setEvaluationReport] = useState(null)
+  const [evaluationLoading, setEvaluationLoading] = useState(false)
+  const [evaluationError, setEvaluationError] = useState('')
   const fileInputRef = useRef(null)
   const recognitionRef = useRef(null)
 
@@ -230,6 +236,21 @@ function App() {
     setActiveId(conversation.id)
     setDraft('')
     setError('')
+    setView('chat')
+  }
+
+  async function openEvaluationDashboard() {
+    setView('evaluation')
+    setEvaluationLoading(true)
+    setEvaluationError('')
+    try {
+      const response = await fetch(`${API_URL}/api/evaluation/latest`)
+      const payload = await readApiPayload(response)
+      if (!response.ok) throw new Error(apiErrorMessage(payload, 'No evaluation report is available yet.'))
+      setEvaluationReport(payload)
+    } catch (loadError) {
+      setEvaluationError(loadError instanceof Error ? loadError.message : 'The evaluation report could not be loaded.')
+    } finally { setEvaluationLoading(false) }
   }
 
   async function persistConversation(conversation) {
@@ -334,6 +355,7 @@ function App() {
     <aside className="sidebar">
       <a className="brand" href="#top"><span className="brand-mark">V</span><span>VeriSight</span></a>
       <button className="new-chat" type="button" onClick={startNewChat}>+ New chat</button>
+      {evaluationDashboardEnabled && <button className="research-link" type="button" onClick={openEvaluationDashboard}>Research metrics</button>}
       <div className="history-heading"><span>History</span><small>{historyLoading ? 'Loading...' : user ? 'Saved' : 'This session'}</small></div>
       <nav className="chat-history" aria-label="Chat history">{conversations.map((conversation) => <button type="button" key={conversation.id} className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}><span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small></button>)}</nav>
       <div className="sidebar-footer">
@@ -354,11 +376,13 @@ function App() {
           <label className="verify-toggle"><input type="checkbox" checked={uncertaintyEnabled} onChange={(event) => setUncertaintyEnabled(event.target.checked)} /><span></span>Uncertainty</label>
         </div>
       </header>
-      <section className="message-thread" aria-live="polite">
+      {view === 'evaluation'
+        ? <EvaluationDashboard report={evaluationReport} loading={evaluationLoading} error={evaluationError} onBack={() => setView('chat')} />
+        : <section className="message-thread" aria-live="polite">
         {!activeConversation?.messages.length && <div className="welcome-card"><span className="assistant-avatar large">V</span><div><h2>What would you like to know?</h2><p>Ask by typing or voice. Attach a PDF to verify answers against its contents.</p><div className="suggestions"><button type="button" onClick={() => setDraft('Who created the Python programming language?')}>Who created Python?</button><button type="button" onClick={() => setDraft('Explain quantum computing in simple terms.')}>Explain quantum computing</button></div></div></div>}
         {activeConversation?.messages.map((message) => <MessageBubble key={message.id} message={message} />)}
-      </section>
-      <form className="composer" onSubmit={handleSubmit}>
+      </section>}
+      {view === 'chat' && <form className="composer" onSubmit={handleSubmit}>
         {document && <div className="document-chip"><span>PDF: {document.filename} ({document.pages} page{document.pages === 1 ? '' : 's'})</span><button type="button" onClick={() => { setDocument(null); setEvidenceMode('web') }} aria-label="Remove PDF">×</button></div>}
         <div className="composer-row">
           <input ref={fileInputRef} type="file" accept="application/pdf" hidden onChange={uploadPdf} />
@@ -369,7 +393,7 @@ function App() {
         </div>
         <p>{verifyEnabled ? `Verification is on: using ${evidenceMode === 'document' ? 'your PDF' : evidenceMode === 'hybrid' ? 'web and your PDF' : 'web evidence'}.${uncertaintyEnabled ? ' Uncertainty uses two additional answer samples.' : ''}` : 'Verification is off: this response will not receive a reliability score.'}</p>
         {error && <strong className="error">{error}</strong>}
-      </form>
+      </form>}
       <AuthDialog open={authOpen} onClose={() => setAuthOpen(false)} onAuthenticated={() => setAuthOpen(false)} />
     </section>
   </main>

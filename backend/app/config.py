@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
     tavily_api_key: str | None = None
     request_timeout_seconds: float = 30.0
+    evaluation_dashboard_enabled: bool = False
 
 
 @lru_cache

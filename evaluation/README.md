@@ -49,3 +49,19 @@ The starter set is only a smoke-test dataset. For the final report, add a
 held-out dataset built from public benchmarks such as FEVER, HaluEval, or
 RAGTruth, document the source and split, and never tune thresholds on the same
 test cases used for the final score.
+
+## Optional local dashboard
+
+Normal chats deliberately do not expose research metrics. To inspect the latest
+local report, set these values before restarting both services:
+
+```text
+# backend/.env
+EVALUATION_DASHBOARD_ENABLED=true
+
+# frontend/.env
+VITE_ENABLE_EVALUATION_DASHBOARD=true
+```
+
+The sidebar will then show **Research metrics**. Keep both values false for the
+normal user-facing deployment.
