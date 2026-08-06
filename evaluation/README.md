@@ -123,6 +123,23 @@ splitter defaults here: those default filenames belong to the QA experiment.
   --dataset evaluation\datasets\halueval_dialogue_test.jsonl
 ```
 
+## HaluEval summarization benchmark
+
+Summarization evaluates document-grounded verification: the supplied news
+document is the evidence, while one summary is grounded and the other contains
+deliberately introduced unsupported information. This reflects VeriSight's PDF
+and document verification mode.
+
+```powershell
+.\backend\.venv\Scripts\python.exe evaluation\import_halueval.py `
+  --task summarization `
+  --input evaluation\vendor\HaluEval\data\summarization_data.json `
+  --limit 100
+
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_summarization.jsonl
+```
+
 For HaluEval answer-level runs, reports include two valid views:
 
 - **Strict verdict metrics** — `supported`, `unsupported`, and `uncertain` are

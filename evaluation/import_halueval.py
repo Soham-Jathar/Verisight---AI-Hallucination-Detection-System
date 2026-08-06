@@ -1,8 +1,9 @@
 """Convert local HaluEval task data into VeriSight's reproducible JSONL format.
 
 Download the official HaluEval repository yourself, then pass the path to its
-``data/qa_data.json`` or ``data/dialogue_data.json`` file. The converter never
-calls an LLM or search API.
+``data/qa_data.json``, ``data/dialogue_data.json``, or
+``data/summarization_data.json`` file. The converter never calls an LLM or
+search API.
 """
 
 from __future__ import annotations
@@ -34,16 +35,18 @@ def build_cases(
 ) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     for index, sample in enumerate(samples[offset:offset + limit], start=offset):
-        knowledge = flatten_text(sample.get("knowledge"))
         if task == "qa":
+            knowledge = flatten_text(sample.get("knowledge"))
             context = flatten_text(sample.get("question"))
             grounded_output = flatten_text(sample.get("right_answer"))
             hallucinated_output = flatten_text(sample.get("hallucinated_answer"))
             context_field = {"question": context}
             evidence_title = "HaluEval QA knowledge"
-        else:
+            snippet_limit = 12_000
+        elif task == "dialogue":
             # Preserve the full turn history. It is useful when manually
             # reviewing any dialogue-verification failure in predictions.json.
+            knowledge = flatten_text(sample.get("knowledge"))
             context = flatten_text(sample.get("dialogue_history"))
             grounded_output = flatten_text(sample.get("right_response"))
             hallucinated_output = flatten_text(sample.get("hallucinated_response"))
@@ -52,6 +55,18 @@ def build_cases(
                 "conversation_history": context,
             }
             evidence_title = "HaluEval dialogue knowledge"
+            snippet_limit = 12_000
+        else:
+            # Summaries should be checked against the source document itself,
+            # not a web search result. Preserve enough of the document for the
+            # claim-focused NLI excerpt selector to find relevant sentences.
+            knowledge = flatten_text(sample.get("document"))
+            context = "Summarize the supplied document faithfully."
+            grounded_output = flatten_text(sample.get("right_summary"))
+            hallucinated_output = flatten_text(sample.get("hallucinated_summary"))
+            context_field = {"question": context, "document_context": knowledge[:40_000]}
+            evidence_title = "HaluEval summarization document"
+            snippet_limit = 40_000
 
         if not knowledge or not context or not grounded_output or not hallucinated_output:
             continue
@@ -59,7 +74,7 @@ def build_cases(
         evidence = [{
             "title": evidence_title,
             "url": f"benchmark://halueval/{task}/{index}",
-            "snippet": knowledge[:12000],
+            "snippet": knowledge[:snippet_limit],
             "credibility": 1.0,
             "source_quality": "Benchmark evidence",
         }]
@@ -86,7 +101,7 @@ def load_samples(path: Path) -> list[dict[str, Any]]:
     except json.JSONDecodeError:
         parsed = [json.loads(line) for line in raw.splitlines() if line.strip()]
     if not isinstance(parsed, list):
-        raise ValueError("HaluEval QA input must be a JSON list or JSONL file.")
+        raise ValueError("HaluEval input must be a JSON list or JSONL file.")
     if not all(isinstance(sample, dict) for sample in parsed):
         raise ValueError("Every HaluEval QA example must be a JSON object.")
     return parsed
@@ -95,10 +110,10 @@ def load_samples(path: Path) -> list[dict[str, Any]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import an official HaluEval benchmark task.")
     parser.add_argument("--input", type=Path, required=True, help="Path to a HaluEval data JSON or JSONL file")
-    parser.add_argument("--task", choices=("qa", "dialogue"), default="qa", help="Structure of the supplied HaluEval file")
+    parser.add_argument("--task", choices=("qa", "dialogue", "summarization"), default="qa", help="Structure of the supplied HaluEval file")
     parser.add_argument("--output", type=Path, help="Converted JSONL output path")
     parser.add_argument("--limit", type=int, default=200, help="Number of source task examples to convert")
-    parser.add_argument("--offset", type=int, default=0, help="Number of source QA samples to skip before conversion")
+    parser.add_argument("--offset", type=int, default=0, help="Number of source task samples to skip before conversion")
     args = parser.parse_args()
 
     samples = load_samples(args.input)
