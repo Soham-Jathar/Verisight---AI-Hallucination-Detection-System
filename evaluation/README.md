@@ -73,6 +73,25 @@ git clone --depth 1 https://github.com/RUCAIBox/HaluEval.git evaluation\vendor\H
 The 200 source examples become 400 answer-level cases. Keep the downloaded and
 converted public data out of Git; the project `.gitignore` already does this.
 
+Before improving any verification thresholds, create a reproducible split:
+
+```powershell
+.\backend\.venv\Scripts\python.exe evaluation\split_dataset.py `
+  --input evaluation\datasets\halueval_qa.jsonl
+
+# Run this while making improvements.
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_dev.jsonl
+
+# Run this only after the improvements are final.
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_test.jsonl
+```
+
+The importer keeps each grounded/hallucinated HaluEval answer pair in the same
+split. This prevents evidence and answer pairs from leaking into the held-out
+result.
+
 ## Optional local dashboard
 
 Normal chats deliberately do not expose research metrics. To inspect the latest
