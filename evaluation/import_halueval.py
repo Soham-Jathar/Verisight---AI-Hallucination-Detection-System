@@ -25,9 +25,9 @@ def flatten_text(value: Any) -> str:
     return ""
 
 
-def build_cases(samples: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+def build_cases(samples: list[dict[str, Any]], limit: int, offset: int = 0) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
-    for index, sample in enumerate(samples[:limit]):
+    for index, sample in enumerate(samples[offset:offset + limit], start=offset):
         knowledge = flatten_text(sample.get("knowledge"))
         question = flatten_text(sample.get("question"))
         right_answer = flatten_text(sample.get("right_answer"))
@@ -76,10 +76,13 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True, help="Path to HaluEval data/qa_data.json")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Converted JSONL output path")
     parser.add_argument("--limit", type=int, default=200, help="Number of source QA samples to convert")
+    parser.add_argument("--offset", type=int, default=0, help="Number of source QA samples to skip before conversion")
     args = parser.parse_args()
 
     samples = load_samples(args.input)
-    cases = build_cases(samples, args.limit)
+    if args.offset < 0:
+        raise ValueError("--offset cannot be negative.")
+    cases = build_cases(samples, args.limit, args.offset)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(json.dumps(case, ensure_ascii=False) for case in cases) + "\n", encoding="utf-8")
     print(f"Converted {len(cases)} answer-level cases to: {args.output}")

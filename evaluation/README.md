@@ -92,6 +92,19 @@ The importer keeps each grounded/hallucinated HaluEval answer pair in the same
 split. This prevents evidence and answer pairs from leaking into the held-out
 result.
 
+Because the first 400-case result has already been viewed, use a fresh,
+non-overlapping source range for the final report result after tuning:
+
+```powershell
+.\backend\.venv\Scripts\python.exe evaluation\import_halueval.py `
+  --input evaluation\vendor\HaluEval\data\qa_data.json `
+  --offset 200 --limit 200 `
+  --output evaluation\datasets\halueval_final_holdout.jsonl
+
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\halueval_final_holdout.jsonl
+```
+
 ## Optional local dashboard
 
 Normal chats deliberately do not expose research metrics. To inspect the latest
