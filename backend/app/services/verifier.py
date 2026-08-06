@@ -474,15 +474,20 @@ def select_citations(answer: str, evidence: list[EvidenceSource], *, limit: int 
     country name. Claim-by-claim selection keeps citations relevant when an
     answer contains more than one factual statement.
     """
-    best_by_url: dict[str, tuple[float, EvidenceSource]] = {}
-    for claim in extract_claims(answer):
+    best_by_url: dict[str, tuple[float, int, EvidenceSource]] = {}
+    for claim_index, claim in enumerate(extract_claims(answer)):
         for source in select_claim_citations(claim, evidence):
             score = _evidence_match(claim, source) * (0.85 + 0.15 * source.credibility)
             previous = best_by_url.get(source.url)
             if previous is None or score > previous[0]:
-                best_by_url[source.url] = (score, source)
-    ranked = sorted(best_by_url.values(), key=lambda item: item[0], reverse=True)
-    return [source for score, source in ranked[:limit] if score >= 0.42]
+                # Keep the first claim position even if this source supports a
+                # later claim more strongly. The citation list is displayed
+                # next to a corrected answer, so statement order is clearer
+                # and more stable than a global score-only ordering.
+                first_claim_index = previous[1] if previous else claim_index
+                best_by_url[source.url] = (score, first_claim_index, source)
+    ordered = sorted(best_by_url.values(), key=lambda item: item[1])
+    return [source for score, _, source in ordered[:limit] if score >= 0.42]
 
 
 def reliability_score(claims: list[ClaimAssessment]) -> float:
