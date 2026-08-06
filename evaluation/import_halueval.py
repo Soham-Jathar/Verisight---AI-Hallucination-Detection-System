@@ -57,6 +57,20 @@ def build_cases(samples: list[dict[str, Any]], limit: int) -> list[dict[str, Any
     return cases
 
 
+def load_samples(path: Path) -> list[dict[str, Any]]:
+    """Accept both historical JSONL releases and JSON-list mirrors."""
+    raw = path.read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    if not isinstance(parsed, list):
+        raise ValueError("HaluEval QA input must be a JSON list or JSONL file.")
+    if not all(isinstance(sample, dict) for sample in parsed):
+        raise ValueError("Every HaluEval QA example must be a JSON object.")
+    return parsed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import the official HaluEval QA benchmark.")
     parser.add_argument("--input", type=Path, required=True, help="Path to HaluEval data/qa_data.json")
@@ -64,9 +78,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=200, help="Number of source QA samples to convert")
     args = parser.parse_args()
 
-    samples = json.loads(args.input.read_text(encoding="utf-8"))
-    if not isinstance(samples, list):
-        raise ValueError("HaluEval QA input must be a JSON list.")
+    samples = load_samples(args.input)
     cases = build_cases(samples, args.limit)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(json.dumps(case, ensure_ascii=False) for case in cases) + "\n", encoding="utf-8")
