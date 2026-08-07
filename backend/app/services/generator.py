@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+import re
 
 from app.config import Settings
 from app.schemas import ChatMessage, EvidenceSource, LLMProvider, ProviderInfo

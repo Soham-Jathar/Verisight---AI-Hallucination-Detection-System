@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.schemas import EvidenceSource
 from app.services.pipeline import _merge_evidence
-from app.services.generator import _connection_error, _document_grounding_instruction
+from app.services.generator import _connection_error, _document_grounding_instruction, _list_answer_instruction
 
 
 @pytest.fixture
@@ -59,6 +59,13 @@ def test_document_only_generation_requires_exact_document_values() -> None:
 
     assert "authoritative" in instruction
     assert "exact value directly" in instruction
+
+
+def test_factual_list_instruction_preserves_complete_supported_lists() -> None:
+    instruction = _list_answer_instruction("Name all the GATE 2027 test papers")
+
+    assert "every requested item" in instruction
+    assert "six items" in instruction
 
 
 def test_document_mode_requires_an_uploaded_pdf(client: TestClient) -> None:
