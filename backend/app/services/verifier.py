@@ -327,6 +327,37 @@ def _factual_list_claims(answer: str, question: str, *, limit: int = 30) -> list
     return claims[:limit]
 
 
+def _grouped_option_list_claims(answer: str, question: str, *, limit: int = 30) -> list[str]:
+    """Turn grouped option lists into complete claims for each named subject.
+
+    For example, a response with separate numbered options for CS and DA must
+    not be split into fragments such as ``Electronics ... 4.``.
+    """
+    if not re.search(r"\b(?:options?|combinations?)\b", question, flags=re.IGNORECASE):
+        return []
+
+    claims: list[str] = []
+    current_subject: str | None = None
+    for line in answer.splitlines():
+        header = re.match(
+            r"^\s*(?:for\s+)?([A-Za-z][A-Za-z0-9+# -]{0,50}),?\s+"
+            r"(?:the\s+)?(?:second\s+)?(?:paper\s+)?options?\s+(?:are|include)\s*:?\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if header:
+            current_subject = header.group(1).strip()
+            continue
+
+        item = re.match(r"^\s*(?:[-*]|\d+[.)])\s+(.+?)\s*$", line)
+        if item and current_subject:
+            option = item.group(1).strip().rstrip(".")
+            if len(option) >= 2:
+                claims.append(f"{option} is an option for {current_subject}.")
+
+    return claims[:limit] if len(claims) >= 2 else []
+
+
 def _is_conversational_sentence(sentence: str) -> bool:
     """Identify responses that do not make an externally checkable claim.
 
@@ -370,6 +401,9 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
     factual_list_claims = _factual_list_claims(answer, question, limit=max(limit, 30))
     if factual_list_claims:
         return factual_list_claims
+    grouped_option_claims = _grouped_option_list_claims(answer, question, limit=max(limit, 30))
+    if grouped_option_claims:
+        return grouped_option_claims
 
     marker = "<period>"
 
@@ -422,7 +456,10 @@ def limit_factual_answer(answer: str, *, question: str = "", limit: int = 6) -> 
     """Ensure every displayed factual claim fits in one verification pass."""
     # Lists are formatted one item per line and may legitimately contain more
     # than six entries (for example a document's complete set of exam papers).
-    if _factual_list_claims(answer, question, limit=30):
+    if (
+        _factual_list_claims(answer, question, limit=30)
+        or _grouped_option_list_claims(answer, question, limit=30)
+    ):
         return answer.strip()
     claims = extract_claims(answer, question, limit=limit + 1)
     if len(claims) <= limit:

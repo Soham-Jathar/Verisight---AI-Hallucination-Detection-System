@@ -98,6 +98,26 @@ def test_gate_numbered_list_is_not_trimmed_or_split_at_item_numbers() -> None:
     assert limit_factual_answer(answer, question=question) == answer
 
 
+def test_grouped_option_lists_become_complete_claims() -> None:
+    answer = (
+        "For CS, the second paper options are:\n"
+        "1. Mathematics (MA)\n"
+        "2. Statistics (ST)\n\n"
+        "For DA, the second paper options are:\n"
+        "1. Computer Science and Information Technology (CS)\n"
+        "2. Electrical Engineering (EE)"
+    )
+    question = "What are the second paper options for CS and DA?"
+
+    assert extract_claims(answer, question, limit=30) == [
+        "Mathematics (MA) is an option for CS.",
+        "Statistics (ST) is an option for CS.",
+        "Computer Science and Information Technology (CS) is an option for DA.",
+        "Electrical Engineering (EE) is an option for DA.",
+    ]
+    assert limit_factual_answer(answer, question=question) == answer
+
+
 def test_verification_sources_exclude_unrelated_pages() -> None:
     claim = ClaimAssessment(
         claim="Bjarne Stroustrup created C++.",
