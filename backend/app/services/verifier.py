@@ -99,6 +99,39 @@ def _lexical_support(claim: str, evidence: list[EvidenceSource]) -> float:
     return best
 
 
+def _option_pair_support(claim: str, evidence: list[EvidenceSource]) -> float:
+    """Recognise compact table cells such as ``CS: MA, ST, EC, IN``.
+
+    PDF extraction commonly removes table columns, leaving a factual pair as
+    adjacent codes rather than a grammatical sentence. This is used only after
+    NLI finds neither entailment nor contradiction.
+    """
+    match = re.match(r"^(.+?) is an option for ([A-Za-z][A-Za-z0-9+#-]*)\.$", claim)
+    if not match:
+        return 0.0
+
+    option, subject = match.groups()
+    code_match = re.search(r"\(([A-Za-z0-9+#-]{2,})\)", option)
+    option_terms = [code_match.group(1)] if code_match else re.findall(r"[A-Za-z0-9]{3,}", option)
+    if not option_terms:
+        return 0.0
+
+    for source in evidence:
+        text = _normalize(source.snippet)
+        # A colon marks an unambiguous compact row (for example
+        # ``CS: MA, ST, EC``). Restrict the lookup to that row; otherwise an
+        # option from the following ``DA: ...`` row could be credited to CS.
+        row_pattern = re.compile(
+            rf"\b{re.escape(subject.lower())}\b\s*:\s*"
+            r"(?P<options>.*?)(?=\s+\b[a-z]{2}\b\s*:|[.;\n]|$)"
+        )
+        for row_match in row_pattern.finditer(text):
+            options_text = row_match.group("options")
+            if all(re.search(rf"\b{re.escape(term.lower())}\b", options_text) for term in option_terms):
+                return 0.88
+    return 0.0
+
+
 def _claim_evidence_excerpt(claim: str, source: EvidenceSource) -> str:
     """Give NLI a focused premise instead of a long search-result paragraph."""
     sentences = [
@@ -262,6 +295,14 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         return "supported", best_entailment, "An NLI model found the claim entailed by retrieved evidence.", agreement
     if entailment_votes and contradiction_votes:
         return "uncertain", max(best_entailment, best_contradiction), "Retrieved sources do not agree strongly enough to verify this claim.", agreement
+    option_pair_support = _option_pair_support(claim, evidence)
+    if option_pair_support and not contradiction_votes:
+        return (
+            "supported",
+            option_pair_support,
+            "The retrieved document table lists this option for the requested subject.",
+            agreement,
+        )
     lexical_support = _lexical_support(claim, evidence)
     if lexical_support >= 0.68 and not contradiction_votes:
         confidence = min(0.92, 0.55 + 0.45 * lexical_support)
@@ -493,6 +534,13 @@ def verify_claims(
         assessments: list[ClaimAssessment] = []
         for claim in claims:
             focused_evidence = _claim_evidence(claim, evidence)
+            # Prefer the excerpt containing the compact subject→option table
+            # pair when ordinary text ranking selected a neighbouring table row.
+            option_table_evidence = [
+                source for source in evidence if _option_pair_support(claim, [source])
+            ]
+            if option_table_evidence:
+                focused_evidence = option_table_evidence[:2]
             status, confidence, rationale, agreement = _nli_verdict(claim, focused_evidence)
             citations = select_claim_citations(claim, focused_evidence)
             assessments.append(

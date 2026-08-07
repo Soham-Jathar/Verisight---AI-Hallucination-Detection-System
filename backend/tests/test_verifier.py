@@ -1,4 +1,5 @@
 from app.services.verifier import (
+    _option_pair_support,
     extract_claims,
     limit_factual_answer,
     reliability_score,
@@ -116,6 +117,19 @@ def test_grouped_option_lists_become_complete_claims() -> None:
         "Electrical Engineering (EE) is an option for DA.",
     ]
     assert limit_factual_answer(answer, question=question) == answer
+
+
+def test_compact_document_table_supports_an_option_pair() -> None:
+    evidence = [
+        EvidenceSource(
+            title="gate.pdf",
+            url="document://gate",
+            snippet="Table 4: CS: MA, ST, EC, IN. DA: CS, EC, EE.",
+        )
+    ]
+
+    assert _option_pair_support("Mathematics (MA) is an option for CS.", evidence) == 0.88
+    assert _option_pair_support("Statistics (ST) is an option for DA.", evidence) == 0.0
 
 
 def test_verification_sources_exclude_unrelated_pages() -> None:

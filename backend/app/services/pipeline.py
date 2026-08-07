@@ -9,7 +9,7 @@ from app.schemas import AnalyzeRequest, AnalyzeResponse, CorrectedAnswer, Eviden
 from app.services.generator import generate_answer, generate_correction, provider_info
 from app.services.math_verifier import verify_math_answer
 from app.services.math_notation import format_math_notation
-from app.services.documents import document_evidence
+from app.services.documents import document_evidence, document_secondary_paper_options
 from app.services.question_types import (
     RequestKind,
     route_request,
@@ -90,6 +90,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     math_question = routed_request.kind == RequestKind.MATH
     verification_applicable = request.verify and not recommendation_request
     evidence = []
+    structured_document_answer = None
     if verification_applicable and not math_question and request.mode in {VerificationMode.DOCUMENT, VerificationMode.HYBRID}:
         if not request.document_id:
             raise HTTPException(
@@ -97,6 +98,7 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
                 detail="Upload a PDF before using document or hybrid verification.",
             )
         evidence.extend(document_evidence(request.document_id, analysis_question))
+        structured_document_answer = document_secondary_paper_options(request.document_id, analysis_question)
     if verification_applicable and not math_question and request.mode in {VerificationMode.WEB, VerificationMode.HYBRID}:
         try:
             evidence.extend(await retrieve_web_evidence(analysis_question, settings=settings))
@@ -125,13 +127,16 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     shared_evidence = list(evidence)
     for index, provider in enumerate(selected):
         try:
-            answer, model = await generate_answer(
-                analysis_question,
-                shared_evidence,
-                settings=settings,
-                provider=provider,
-                history=request.history,
-            )
+            if structured_document_answer:
+                answer, model = structured_document_answer, "document-table-extractor"
+            else:
+                answer, model = await generate_answer(
+                    analysis_question,
+                    shared_evidence,
+                    settings=settings,
+                    provider=provider,
+                    history=request.history,
+                )
             if math_question:
                 answer = format_math_notation(answer)
             elif verification_applicable and not recommendation_request:
