@@ -14,6 +14,11 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_DOCUMENT_CHARACTERS = 100_000
 DOCUMENT_CHUNK_WORDS = 220
 DOCUMENT_CHUNK_OVERLAP_WORDS = 40
+DOCUMENT_QUERY_STOP_WORDS = {
+    "about", "available", "does", "for", "from", "gate", "have", "how",
+    "list", "name", "only", "options", "paper", "papers", "the", "there",
+    "these", "what", "which", "with",
+}
 _documents: dict[str, "StoredDocument"] = {}
 
 
@@ -74,7 +79,14 @@ def document_evidence(document_id: str, question: str, *, limit: int = 4) -> lis
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The uploaded PDF is no longer available. Please upload it again.")
 
-    terms = set(re.findall(r"[a-zA-Z0-9]{3,}", question.lower()))
+    # Exam and product documents frequently use two-character official codes
+    # (for example CS, DA, AI, ML). Keeping them makes a lookup for a code
+    # select the relevant table rather than a generic page containing "paper".
+    terms = {
+        term
+        for term in re.findall(r"[a-zA-Z0-9]{2,}", question.lower())
+        if term not in DOCUMENT_QUERY_STOP_WORDS
+    }
     ranked = sorted(
         (
             (

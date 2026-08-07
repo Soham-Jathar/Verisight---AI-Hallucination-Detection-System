@@ -81,6 +81,23 @@ def test_numbered_winner_list_becomes_complete_claims() -> None:
     ]
 
 
+def test_gate_numbered_list_is_not_trimmed_or_split_at_item_numbers() -> None:
+    answer = (
+        "The GATE 2027 test papers are:\n"
+        "1. Aerospace Engineering (AE)\n"
+        "2. Agricultural Engineering (AG)\n"
+        "3. Architecture and Planning (AR)"
+    )
+    question = "Name all the GATE 2027 test papers"
+
+    assert extract_claims(answer, question, limit=30) == [
+        "Aerospace Engineering (AE) is included in the list of GATE 2027 test papers.",
+        "Agricultural Engineering (AG) is included in the list of GATE 2027 test papers.",
+        "Architecture and Planning (AR) is included in the list of GATE 2027 test papers.",
+    ]
+    assert limit_factual_answer(answer, question=question) == answer
+
+
 def test_verification_sources_exclude_unrelated_pages() -> None:
     claim = ClaimAssessment(
         claim="Bjarne Stroustrup created C++.",

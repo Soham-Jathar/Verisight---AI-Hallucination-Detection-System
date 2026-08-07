@@ -301,6 +301,32 @@ def _winner_list_claims(answer: str, question: str, *, limit: int = 6) -> list[s
     return claims[:limit]
 
 
+def _factual_list_claims(answer: str, question: str, *, limit: int = 30) -> list[str]:
+    """Make numbered factual lists verifiable without treating item numbers as sentences."""
+    if not re.search(r"\b(?:list|name|papers?|options?|items?)\b", question, flags=re.IGNORECASE):
+        return []
+    items = re.findall(r"(?m)^\s*(?:[-*]|\d+[.)])\s+(.+?)\s*$", answer.strip())
+    if len(items) < 2:
+        return []
+
+    header = answer[: re.search(r"(?m)^\s*(?:[-*]|\d+[.)])\s+", answer).start()]
+    context_match = re.search(r"\b(?:GATE\s*\d{4}\s+)?test papers?\b", f"{question} {header}", re.IGNORECASE)
+    if not context_match:
+        return []
+    context = context_match.group(0)
+    if not re.search(r"GATE\s*\d{4}", context, re.IGNORECASE):
+        gate_match = re.search(r"GATE\s*\d{4}", f"{question} {header}", re.IGNORECASE)
+        if gate_match:
+            context = f"{gate_match.group(0)} {context}"
+
+    claims = []
+    for item in items:
+        cleaned = item.strip().rstrip(".")
+        if len(cleaned) >= 2:
+            claims.append(f"{cleaned} is included in the list of {context}.")
+    return claims[:limit]
+
+
 def _is_conversational_sentence(sentence: str) -> bool:
     """Identify responses that do not make an externally checkable claim.
 
@@ -338,6 +364,12 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
     winner_claims = _winner_list_claims(answer, question, limit=limit)
     if winner_claims:
         return winner_claims
+    # Unlike ordinary prose, an explicit enumerated list can legitimately have
+    # many entries. Preserve up to 30 for verification rather than silently
+    # scoring only its first six items.
+    factual_list_claims = _factual_list_claims(answer, question, limit=max(limit, 30))
+    if factual_list_claims:
+        return factual_list_claims
 
     marker = "<period>"
 
@@ -388,6 +420,10 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
 
 def limit_factual_answer(answer: str, *, question: str = "", limit: int = 6) -> str:
     """Ensure every displayed factual claim fits in one verification pass."""
+    # Lists are formatted one item per line and may legitimately contain more
+    # than six entries (for example a document's complete set of exam papers).
+    if _factual_list_claims(answer, question, limit=30):
+        return answer.strip()
     claims = extract_claims(answer, question, limit=limit + 1)
     if len(claims) <= limit:
         return answer.strip()

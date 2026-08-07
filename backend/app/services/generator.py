@@ -144,6 +144,21 @@ def _document_grounding_instruction(evidence: list[EvidenceSource]) -> str:
     return ""
 
 
+def _list_answer_instruction(question: str) -> str:
+    """Keep genuine factual lists complete without applying the short-answer rule."""
+    if not re.search(
+        r"\b(?:list|name|show|give|what are|which are)\b.*\b(?:all|papers?|options?|names?|items?|subjects?|courses?)\b",
+        question,
+        flags=re.IGNORECASE,
+    ):
+        return ""
+    return (
+        " This is a factual list request. When the supplied information establishes the list, "
+        "provide every requested item on its own numbered line. Do not stop after six items. "
+        "Keep each item to its name and official code where applicable."
+    )
+
+
 def _history_block(history: list[ChatMessage] | None) -> str:
     if not history:
         return "No previous conversation."
@@ -220,6 +235,8 @@ async def _generate_with_openai_compatible(
             "Do not claim that a list is complete unless the supplied information explicitly establishes that. "
             "For factual answers that are not recommendations, provide no more than six independently "
             "verifiable sentences. If the user asks for more, provide the six most useful facts and say it is a selection. "
+            + _list_answer_instruction(question)
+            + " "
             "Do not limit a recommendation when the user requests a specific number of ideas. "
             "Do not use a company, product, organisation, or other named example in a factual answer unless "
             "the supplied evidence explicitly names it; prefer general supported categories instead. "
@@ -295,7 +312,9 @@ async def _generate_with_gemini(
             "into one sentence. Do not claim that a list is complete unless the supplied information "
             "explicitly establishes that. For factual answers that are not recommendations, provide no more than six "
             "independently verifiable sentences. If the user asks for more, provide the six most useful facts and say "
-            "it is a selection. Do not limit a recommendation when the user requests a specific number of ideas. "
+            "it is a selection. "
+            + _list_answer_instruction(question)
+            + " Do not limit a recommendation when the user requests a specific number of ideas. "
             "Do not use a company, product, organisation, or other named example in a factual answer unless the "
             "supplied evidence explicitly names it; prefer general supported categories instead. "
             "For a mathematical question, give only the requested result or formulas, "
