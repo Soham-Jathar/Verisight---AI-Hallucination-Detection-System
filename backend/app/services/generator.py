@@ -128,6 +128,22 @@ def _evidence_block(evidence: list[EvidenceSource]) -> str:
     ) or "No evidence was retrieved."
 
 
+def _document_grounding_instruction(evidence: list[EvidenceSource]) -> str:
+    """Tighten answer generation when the user selected document-only mode."""
+    has_document = any(source.url.startswith("document://") for source in evidence)
+    has_web_source = any(
+        source.url.startswith(("http://", "https://"))
+        for source in evidence
+    )
+    if has_document and not has_web_source:
+        return (
+            " The supplied evidence is an uploaded document and is authoritative for this answer. "
+            "Answer only from that document. When it explicitly names a person, institute, organisation, "
+            "date, number, or topic, state that exact value directly instead of replacing it with a vague description."
+        )
+    return ""
+
+
 def _history_block(history: list[ChatMessage] | None) -> str:
     if not history:
         return "No previous conversation."
@@ -194,6 +210,8 @@ async def _generate_with_openai_compatible(
             "You are a concise, factual assistant. Answer the user's latest question "
             "directly using your general knowledge. The supplied evidence is useful "
             "context, but do not mention it or refuse solely because it is incomplete. "
+            + _document_grounding_instruction(evidence)
+            + " "
             "Do not start with phrases such as 'Based on the provided evidence'. "
             "Use short sentences with one independently verifiable fact per sentence; "
             "do not combine a role, date, achievement, and event into one sentence. "
@@ -266,8 +284,9 @@ async def _generate_with_gemini(
         else (
             "You are a concise, factual assistant. Answer the user's question directly using "
             "your general knowledge. The supplied evidence is useful context, but do not mention "
-            "it or refuse solely because it is incomplete. Do not start with phrases such as "
-            "'Based on the provided evidence'. Use short sentences with one independently "
+            "it or refuse solely because it is incomplete. "
+            + _document_grounding_instruction(evidence)
+            + "Do not start with phrases such as 'Based on the provided evidence'. Use short sentences with one independently "
             "verifiable fact per sentence; do not combine a role, date, achievement, and event "
             "into one sentence. Do not claim that a list is complete unless the supplied information "
             "explicitly establishes that. For factual answers that are not recommendations, provide no more than six "

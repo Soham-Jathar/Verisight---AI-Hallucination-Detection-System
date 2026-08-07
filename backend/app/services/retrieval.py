@@ -146,7 +146,7 @@ def _research_query(question: str) -> str:
             return f"{subject} birth date birthplace"
         if re.search(r"\b(?:die|died|death)\b", question, flags=re.IGNORECASE):
             return f"{subject} death date"
-        if re.search(r"\b(?:achievement|awards?|career|accomplishment)\b", question, flags=re.IGNORECASE):
+        if re.search(r"\b(?:achievements?|awards?|career|accomplishment)\b", question, flags=re.IGNORECASE):
             return f"{subject} achievements career"
         return f"{subject} biography"
     if re.search(
@@ -205,6 +205,8 @@ def _normalize(text: str) -> str:
 
 
 def _stem(token: str) -> str:
+    if token in {"cplusplus", "csharp", "dotnet"}:
+        return token
     for suffix in ("ing", "ers", "er", "ed", "es", "s"):
         if token.endswith(suffix) and len(token) - len(suffix) >= 4:
             return token[: -len(suffix)]

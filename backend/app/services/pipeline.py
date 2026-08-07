@@ -187,6 +187,14 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     correction = None
     uncertainty_score = None
     visible_evidence = select_verification_sources(claims, primary_evidence) if verification_applicable else []
+    if verification_applicable and not visible_evidence:
+        # A vague answer may not have a claim-level citation, but document mode
+        # should still show the uploaded file that was actually consulted.
+        visible_evidence = [
+            source
+            for source in primary_evidence
+            if source.url.startswith("document://")
+        ][:1]
     if verification_applicable and not math_question and primary_evidence and unsupported:
         try:
             corrected_answer, _ = await generate_correction(

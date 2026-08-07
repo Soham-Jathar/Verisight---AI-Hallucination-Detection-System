@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.schemas import EvidenceSource
 from app.services.pipeline import _merge_evidence
-from app.services.generator import _connection_error
+from app.services.generator import _connection_error, _document_grounding_instruction
 
 
 @pytest.fixture
@@ -48,12 +48,26 @@ def test_merge_evidence_keeps_focused_excerpt_for_same_url() -> None:
     assert "Guido van Rossum" in merged[0].snippet
 
 
-def test_analyze_rejects_unsupported_mode(client: TestClient) -> None:
+def test_document_only_generation_requires_exact_document_values() -> None:
+    document = EvidenceSource(
+        title="syllabus.pdf",
+        url="document://syllabus",
+        snippet="GATE 2027 is organised by IIT Madras.",
+    )
+
+    instruction = _document_grounding_instruction([document])
+
+    assert "authoritative" in instruction
+    assert "exact value directly" in instruction
+
+
+def test_document_mode_requires_an_uploaded_pdf(client: TestClient) -> None:
     response = client.post(
         "/api/analyze",
         json={"question": "Who created Python?", "mode": "document"},
     )
-    assert response.status_code == 501
+    assert response.status_code == 400
+    assert "Upload a PDF" in response.json()["detail"]
 
 
 def test_analyze_web_mode_contract(client: TestClient) -> None:
