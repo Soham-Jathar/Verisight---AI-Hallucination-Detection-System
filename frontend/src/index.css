@@ -87,4 +87,5 @@ body { overflow: hidden; }
 .report-item strong, .report-item span { display: block; }
 .report-item strong { color: #e3eaff; font-size: 11px; }
 .report-item span { margin-top: 3px; color: #8294b8; font: 9px 'DM Mono', monospace; }
+.evaluation-dashboard { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 @media (max-width: 720px) { .report-history { grid-template-columns: 1fr; }.evaluation-actions { width: 100%; }.message-thread { padding: 24px 18px; } }
