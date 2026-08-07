@@ -16,12 +16,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RESULTS_DIR = PROJECT_ROOT / "evaluation" / "results"
 
 
-def _latest_report_directory() -> Path:
-    runs = sorted(
+def _report_directories() -> list[Path]:
+    return sorted(
         (path for path in RESULTS_DIR.iterdir() if path.is_dir() and (path / "metrics.json").exists()),
         key=lambda path: path.name,
         reverse=True,
     ) if RESULTS_DIR.exists() else []
+
+
+def _latest_report_directory() -> Path:
+    runs = _report_directories()
     if not runs:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -30,18 +34,25 @@ def _latest_report_directory() -> Path:
     return runs[0]
 
 
+def _read_report(report_directory: Path) -> dict[str, Any]:
+    try:
+        metrics = json.loads((report_directory / "metrics.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An evaluation report could not be read.",
+        ) from exc
+    return {"run_id": report_directory.name, "metrics": metrics}
+
+
 @router.get("/latest")
 def latest_evaluation(settings: Settings = Depends(get_settings)) -> dict[str, Any]:
     """Return the newest aggregate report when explicitly enabled locally."""
     if not settings.evaluation_dashboard_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-    report_directory = _latest_report_directory()
-    try:
-        metrics = json.loads((report_directory / "metrics.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The latest evaluation report could not be read.",
-        ) from exc
-    return {"run_id": report_directory.name, "metrics": metrics}
+    latest = _read_report(_latest_report_directory())
+    # Unit tests validate code only. These are benchmark reports from
+    # evaluation/run.py, which makes the research metrics reproducible.
+    recent_reports = [_read_report(path) for path in _report_directories()[:8]]
+    return {**latest, "recent_reports": recent_reports}

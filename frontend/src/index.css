@@ -61,3 +61,30 @@
 .evaluation-dashboard { width: min(920px, 100%); margin: 0 auto; padding: 42px clamp(22px, 5vw, 56px); }
 .evaluation-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 23px; border-bottom: 1px solid #aebcff25; }.evaluation-header p { margin: 0 0 6px; color: #aebcff; font: 10px 'DM Mono', monospace; letter-spacing: .8px; }.evaluation-header h2 { margin: 0; color: #f2f5ff; font-size: 24px; }.evaluation-header span { display: block; max-width: 520px; margin-top: 8px; color: #99a9c8; font-size: 12px; line-height: 1.5; }.evaluation-header button { padding: 8px 10px; color: #c8d4ef; border: 1px solid #aebcff35; border-radius: 7px; background: #202b47; font-size: 11px; white-space: nowrap; }.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; margin: 24px 0; }.metric-grid article { padding: 15px; border: 1px solid #aebcff25; border-radius: 10px; background: #1a2540a8; }.metric-grid span { display: block; color: #8798bb; font: 9px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .45px; }.metric-grid strong { display: block; margin-top: 9px; color: #eaf0ff; font-size: 24px; }.evaluation-section { margin-top: 20px; padding: 17px; border: 1px solid #aebcff25; border-radius: 10px; background: #17213991; }.evaluation-section h3 { margin: 0; color: #e6edff; font-size: 13px; }.evaluation-section > p { margin: 5px 0 14px; color: #8596b8; font-size: 10px; }.evaluation-table-wrap { overflow-x: auto; }.evaluation-section table { width: 100%; border-collapse: collapse; color: #c9d5ed; font-size: 11px; text-align: left; }.evaluation-section th, .evaluation-section td { padding: 10px 7px; border-top: 1px solid #aebcff1b; }.evaluation-section th { color: #8091b2; font: 9px 'DM Mono', monospace; text-transform: uppercase; }.matrix { display: grid; grid-template-columns: 130px repeat(3, minmax(75px, 1fr)); gap: 2px; overflow-x: auto; }.matrix b, .matrix span { min-height: 38px; display: grid; place-items: center; padding: 7px; border-radius: 4px; font-size: 10px; }.matrix b { color: #91a2c7; background: #202b47; font-weight: 600; }.matrix span { color: #e5ecff; background: #303e634d; font: 12px 'DM Mono', monospace; }.evaluation-footer { margin-top: 18px; color: #6f81a7; font: 9px 'DM Mono', monospace; line-height: 1.5; }.evaluation-state { margin-top: 28px; color: #aebbd4; font-size: 13px; }
 @media (max-width: 720px) { .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.evaluation-dashboard { padding: 25px 18px; }.evaluation-header { flex-direction: column; }.matrix { grid-template-columns: 105px repeat(3, minmax(66px, 1fr)); } }
+
+/* Keep the application frame fixed: only the chat history and chat thread scroll. */
+html, body, #root { height: 100%; }
+body { overflow: hidden; }
+.chat-app { height: 100vh; min-height: 0; overflow: hidden; }
+.sidebar { height: 100vh; min-height: 0; overflow: hidden; }
+.sidebar-account { margin: 10px 9px 0; padding-top: 10px; }
+.history-heading { margin-top: 20px; }
+.chat-history { flex: 1 1 auto; min-height: 0; align-content: start; overscroll-behavior: contain; }
+.sidebar-footer { flex: none; margin-top: 12px; padding-top: 13px; }
+.sidebar-footer p { margin-top: 8px; }
+.chat-panel { height: 100vh; min-height: 0; overflow: hidden; grid-template-rows: auto minmax(0, 1fr) auto; }
+.chat-header { position: relative; z-index: 2; background: #151d30; }
+.message-thread { width: 100%; min-height: 0; margin: 0; overflow-y: auto; overscroll-behavior: contain; padding: 42px max(22px, calc((100% - 850px) / 2)) 30px; }
+.composer { position: relative; z-index: 2; background: linear-gradient(180deg, #141c2d, #101625); }
+
+/* Research dashboard: refresh and select any of the latest local benchmark runs. */
+.evaluation-actions { display: flex; gap: 8px; }
+.evaluation-header button:disabled { opacity: .55; cursor: wait; }
+.report-history { display: grid; grid-template-columns: minmax(200px, .75fr) minmax(0, 1.25fr); gap: 18px; }
+.report-list { display: grid; gap: 6px; max-height: 168px; overflow-y: auto; }
+.report-item { width: 100%; padding: 9px 10px; color: #b9c8e5; border: 1px solid #aebcff22; border-radius: 7px; background: #111a2e; text-align: left; }
+.report-item:hover, .report-item.active { border-color: #9dacf05a; background: #27355a; }
+.report-item strong, .report-item span { display: block; }
+.report-item strong { color: #e3eaff; font-size: 11px; }
+.report-item span { margin-top: 3px; color: #8294b8; font: 9px 'DM Mono', monospace; }
+@media (max-width: 720px) { .report-history { grid-template-columns: 1fr; }.evaluation-actions { width: 100%; }.message-thread { padding: 24px 18px; } }

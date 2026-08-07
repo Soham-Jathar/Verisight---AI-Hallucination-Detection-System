@@ -239,8 +239,7 @@ function App() {
     setView('chat')
   }
 
-  async function openEvaluationDashboard() {
-    setView('evaluation')
+  async function loadEvaluationDashboard() {
     setEvaluationLoading(true)
     setEvaluationError('')
     try {
@@ -251,6 +250,11 @@ function App() {
     } catch (loadError) {
       setEvaluationError(loadError instanceof Error ? loadError.message : 'The evaluation report could not be loaded.')
     } finally { setEvaluationLoading(false) }
+  }
+
+  async function openEvaluationDashboard() {
+    setView('evaluation')
+    await loadEvaluationDashboard()
   }
 
   async function persistConversation(conversation) {
@@ -356,13 +360,13 @@ function App() {
       <a className="brand" href="#top"><span className="brand-mark">V</span><span>VeriSight</span></a>
       <button className="new-chat" type="button" onClick={startNewChat}>+ New chat</button>
       {evaluationDashboardEnabled && <button className="research-link" type="button" onClick={openEvaluationDashboard}>Research metrics</button>}
+      <div className="account-panel sidebar-account">{user
+        ? <><strong title={user.email}>{user.email}</strong><button type="button" onClick={signOut}>Sign out</button></>
+        : <button type="button" onClick={openAuth}>{isSupabaseConfigured ? 'Sign in to save chats' : 'Configure saved history'}</button>}</div>
       <div className="history-heading"><span>History</span><small>{historyLoading ? 'Loading...' : user ? 'Saved' : 'This session'}</small></div>
       <nav className="chat-history" aria-label="Chat history">{conversations.map((conversation) => <button type="button" key={conversation.id} className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}><span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small></button>)}</nav>
       <div className="sidebar-footer">
         <span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span>
-        <div className="account-panel">{user
-          ? <><strong title={user.email}>{user.email}</strong><button type="button" onClick={signOut}>Sign out</button></>
-          : <button type="button" onClick={openAuth}>{isSupabaseConfigured ? 'Sign in to save chats' : 'Configure saved history'}</button>}</div>
         <p>Use web, PDF, or both as verification evidence.</p>
       </div>
     </aside>
@@ -377,7 +381,7 @@ function App() {
         </div>
       </header>
       {view === 'evaluation'
-        ? <EvaluationDashboard report={evaluationReport} loading={evaluationLoading} error={evaluationError} onBack={() => setView('chat')} />
+        ? <EvaluationDashboard report={evaluationReport} loading={evaluationLoading} error={evaluationError} onBack={() => setView('chat')} onRefresh={loadEvaluationDashboard} />
         : <section className="message-thread" aria-live="polite">
         {!activeConversation?.messages.length && <div className="welcome-card"><span className="assistant-avatar large">V</span><div><h2>What would you like to know?</h2><p>Ask by typing or voice. Attach a PDF to verify answers against its contents.</p><div className="suggestions"><button type="button" onClick={() => setDraft('Who created the Python programming language?')}>Who created Python?</button><button type="button" onClick={() => setDraft('Explain quantum computing in simple terms.')}>Explain quantum computing</button></div></div></div>}
         {activeConversation?.messages.map((message) => <MessageBubble key={message.id} message={message} />)}
