@@ -165,6 +165,18 @@ def test_general_follow_up_accepts_give_more_information_wording() -> None:
     assert resolve_contextual_question("Give more information", history) == "Provide more information about Python programming."
 
 
+def test_list_names_follow_up_keeps_the_original_list_subject() -> None:
+    history = [
+        ChatMessage(role="user", content="List the papers for GATE 2027"),
+        ChatMessage(role="assistant", content="GATE 2027 has 30 test papers."),
+    ]
+
+    resolved = resolve_contextual_question("List only the names", history)
+
+    assert resolved == "List only the names of papers for GATE 2027."
+    assert route_request("List only the names", history).kind == RequestKind.FACTUAL
+
+
 def test_contextual_alternative_request_keeps_the_previous_topic() -> None:
     history = [
         ChatMessage(role="user", content="Who created Vercel?"),

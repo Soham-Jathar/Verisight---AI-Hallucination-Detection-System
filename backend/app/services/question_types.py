@@ -230,6 +230,29 @@ _ALTERNATIVE_FOLLOW_UP = re.compile(
     r"alternatives?\s+(?:for|to|of)\s+(?:it|this|that|these|those)\s*[.!?]*$",
     re.IGNORECASE,
 )
+_LIST_NAMES_FOLLOW_UP = re.compile(
+    r"^\s*(?:list|show|give)\s+(?:only\s+)?(?:the\s+)?names?\s*(?:only)?[.!?]*$|"
+    r"^\s*(?:names?\s+only|list\s+them)[.!?]*$",
+    re.IGNORECASE,
+)
+
+
+def _recent_list_subject(history) -> str | None:
+    """Return what the user was asking to list, for concise list follow-ups."""
+    for message in reversed(history or []):
+        if getattr(message, "role", None) != "user":
+            continue
+        content = message.content.strip().rstrip("?!. ")
+        match = re.match(
+            r"^\s*(?:list|show|give|name)\s+(?:me\s+)?(?:only\s+)?(?:the\s+)?(.+)$",
+            content,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            subject = match.group(1).strip(" ,")
+            if len(subject) >= 2:
+                return subject
+    return None
 
 
 def _looks_like_general_follow_up(question: str) -> bool:
@@ -237,6 +260,8 @@ def _looks_like_general_follow_up(question: str) -> bool:
     if not normalized:
         return False
     return bool(
+        _LIST_NAMES_FOLLOW_UP.fullmatch(question.strip())
+        or
         re.search(r"\b(?:he|she|they|it|his|her|their|its|this|that|these|those)\b", normalized)
         or re.fullmatch(rf"{_MORE_INFORMATION_FOLLOW_UP}[.!?]*", normalized)
         or re.fullmatch(r"another author[.!?]*", normalized)
@@ -247,6 +272,11 @@ def _looks_like_general_follow_up(question: str) -> bool:
 def _resolve_general_follow_up(question: str, history) -> str:
     """Make references in a short follow-up explicit for generation and search."""
     if not _looks_like_general_follow_up(question):
+        return question
+    if _LIST_NAMES_FOLLOW_UP.fullmatch(question.strip()):
+        subject = _recent_list_subject(history)
+        if subject:
+            return f"List only the names of {subject}."
         return question
     if re.fullmatch(r"another author[.!?]*", question.strip(), flags=re.IGNORECASE):
         author = _recent_answered_person(history)

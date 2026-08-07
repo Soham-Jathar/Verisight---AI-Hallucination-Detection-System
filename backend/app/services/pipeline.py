@@ -198,7 +198,11 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
     if verification_applicable and not math_question and primary_evidence and unsupported:
         try:
             corrected_answer, _ = await generate_correction(
-                request.question,
+                # Use the context-resolved request, never a bare follow-up such
+                # as "List only the names". Otherwise a correction can answer a
+                # loosely related detail from the evidence instead of the user's
+                # actual topic.
+                analysis_question,
                 primary_evidence,
                 settings=settings,
                 provider=primary.provider,

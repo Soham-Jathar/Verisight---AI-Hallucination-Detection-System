@@ -203,8 +203,10 @@ async def _generate_with_openai_compatible(
 
     instruction = (
         "Write a concise corrected answer to the user's question. Use only the supplied evidence; "
-        "do not add facts from general knowledge. If the evidence cannot support an answer, say so plainly. "
-        "Do not mention the correction process, evidence, or citations."
+        "do not add facts from general knowledge. Answer the exact requested subject and category, especially "
+        "for a list request: never substitute related people, organisations, or locations for the requested items. "
+        "If the evidence cannot support an answer, say so plainly. Do not mention the correction process, "
+        "evidence, or citations."
         if correction
         else (
             "You are a concise, factual assistant. Answer the user's latest question "
@@ -278,8 +280,10 @@ async def _generate_with_gemini(
 
     instruction = (
         "Write a concise corrected answer to the user's question. Use only the supplied evidence; "
-        "do not add facts from general knowledge. If the evidence cannot support an answer, say so plainly. "
-        "Do not mention the correction process, evidence, or citations."
+        "do not add facts from general knowledge. Answer the exact requested subject and category, especially "
+        "for a list request: never substitute related people, organisations, or locations for the requested items. "
+        "If the evidence cannot support an answer, say so plainly. Do not mention the correction process, "
+        "evidence, or citations."
         if correction
         else (
             "You are a concise, factual assistant. Answer the user's question directly using "
