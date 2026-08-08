@@ -53,9 +53,10 @@ PROFILE_TITLE_CONTEXT_TERMS = {
 }
 
 # The keyword normalizer can remove a trailing plural-like ``s``. Keep this
-# tolerance limited to identity-title matching so ``Subhas`` and ``Subhash``
-# can still resolve to the same historical person.
-IDENTITY_TERM_SIMILARITY = 0.80
+# tolerance limited to identity-title matching so ``Subhas``, ``Subhash``,
+# and the common typed variant ``Shubhash`` can resolve to the same historical
+# person. Extra title words are still checked separately to reject namesakes.
+IDENTITY_TERM_SIMILARITY = 0.70
 
 
 def _split_compound_question(question: str) -> list[str]:

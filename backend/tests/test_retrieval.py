@@ -81,6 +81,7 @@ def test_identity_search_rejects_a_different_person_with_the_same_name() -> None
     assert _is_unrelated_identity_page("Who is Subhash Chandra Bose?", namesake)
     assert not _is_unrelated_identity_page("Who is Kalpana Chawla?", profile)
     assert not _is_unrelated_identity_page("Who is Subhash Chandra Bose?", spelling_variant)
+    assert not _is_unrelated_identity_page("Who is Shubhash Chandra Bose?", spelling_variant)
 
 
 def test_diverse_evidence_does_not_count_one_domain_multiple_times() -> None:
