@@ -19,7 +19,7 @@ DEFAULT_HEADERS = {
 }
 
 STOP_WORDS = {
-    "about", "after", "are", "does", "from", "have", "into", "is", "the",
+    "about", "after", "and", "are", "does", "from", "have", "into", "is", "the",
     "this", "that", "what", "when", "where", "which", "who", "with", "would",
 }
 
@@ -41,6 +41,15 @@ SUBJECT_ALIASES = {
     "py": "Python",
     "css": "CSS",
     "html": "HTML",
+}
+
+# These may occur beside a person's name in a legitimate profile title without
+# changing the subject, such as "Dr. Kalpana Chawla | National Air and Space
+# Museum". Other added name-like terms signal a different person with a
+# similar name and should not be treated as biographical evidence.
+PROFILE_TITLE_CONTEXT_TERMS = {
+    "air", "archive", "biography", "dr", "history", "life", "museum",
+    "national", "official", "profile", "space", "the", "tribute",
 }
 
 
@@ -190,6 +199,8 @@ def _identity_title_bonus(question: str, title: str) -> float:
         )
     ):
         return 10.0
+    if subject_terms <= title_terms and (title_terms - subject_terms) <= PROFILE_TITLE_CONTEXT_TERMS:
+        return 8.0
     # A one-word query such as "Ramanujan" can validly lead to a full name.
     if len(subject_terms) == 1 and subject_terms <= title_terms:
         return 4.0
@@ -360,7 +371,18 @@ def _is_unrelated_identity_page(question: str, source: EvidenceSource) -> bool:
         return False
     subject_terms = _keywords(_subject_query(question))
     title_terms = _keywords(source.title)
-    if not subject_terms or subject_terms <= title_terms:
+    if not subject_terms:
+        return False
+    # A one-word prompt such as "Who is Ramanujan?" can legitimately lead to
+    # a full title such as "Srinivasa Ramanujan". For a multi-word person name,
+    # however, another non-profile word in the title is a strong namesake cue:
+    # "Pilli Subhash Chandra Bose" is not the same subject as Netaji.
+    if len(subject_terms) > 1 and subject_terms <= title_terms:
+        extra_terms = title_terms - subject_terms
+        if extra_terms and not extra_terms <= PROFILE_TITLE_CONTEXT_TERMS:
+            return True
+        return False
+    if subject_terms <= title_terms:
         return False
     host = urlparse(source.url).netloc.lower()
     return source.credibility < 0.90 and not host.endswith((".gov", ".gov.in", ".edu", ".edu.in"))

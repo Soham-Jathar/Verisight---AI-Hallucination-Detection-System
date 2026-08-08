@@ -2,6 +2,7 @@ from app.schemas import EvidenceSource
 from app.services.retrieval import (
     _split_compound_question,
     _has_topic_anchor,
+    _is_unrelated_identity_page,
     _keywords,
     _relation_parts,
     _research_query,
@@ -58,6 +59,22 @@ def test_identity_question_with_achievement_request_keeps_person_subject() -> No
 def test_biographical_follow_up_uses_the_person_not_a_namesake_institution() -> None:
     assert _subject_query("When was Kalpana Chawla born?") == "Kalpana Chawla"
     assert _research_query("When was Kalpana Chawla born?") == "Kalpana Chawla birth date birthplace"
+
+
+def test_identity_search_rejects_a_different_person_with_the_same_name() -> None:
+    namesake = EvidenceSource(
+        title="Pilli Subhash Chandra Bose",
+        url="https://example.com/pilli-bose",
+        snippet="Pilli Subhash Chandra Bose is an Indian politician.",
+    )
+    profile = EvidenceSource(
+        title="Dr. Kalpana Chawla | National Air and Space Museum",
+        url="https://airandspace.si.edu/kalpana-chawla",
+        snippet="Kalpana Chawla was an astronaut.",
+    )
+
+    assert _is_unrelated_identity_page("Who is Subhash Chandra Bose?", namesake)
+    assert not _is_unrelated_identity_page("Who is Kalpana Chawla?", profile)
 
 
 def test_diverse_evidence_does_not_count_one_domain_multiple_times() -> None:
