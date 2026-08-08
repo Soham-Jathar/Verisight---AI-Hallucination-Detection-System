@@ -6,6 +6,7 @@ from app.services.retrieval import (
     _relation_parts,
     _research_query,
     _select_diverse_sources,
+    _source_merge_key,
     _subject_query,
 )
 
@@ -81,3 +82,18 @@ def test_diverse_evidence_does_not_count_one_domain_multiple_times() -> None:
         limit=3,
     )
     assert selected == [wikipedia_profile, official]
+
+
+def test_same_title_from_independent_domains_is_not_merged() -> None:
+    official = EvidenceSource(
+        title="Microsoft",
+        url="https://www.microsoft.com/en-us/about",
+        snippet="Microsoft is a technology company.",
+    )
+    encyclopedia = EvidenceSource(
+        title="Microsoft",
+        url="https://en.wikipedia.org/wiki/Microsoft",
+        snippet="Microsoft is an American technology corporation.",
+    )
+
+    assert _source_merge_key(official) != _source_merge_key(encyclopedia)

@@ -268,6 +268,17 @@ def _source_host(source: EvidenceSource) -> str:
     return urlparse(source.url).netloc.lower().removeprefix("www.") or source.url
 
 
+def _source_merge_key(source: EvidenceSource) -> tuple[str, str]:
+    """Only merge duplicates from the same domain.
+
+    Different publishers often use the same page title (for example,
+    ``Microsoft`` on microsoft.com and Wikipedia). Keeping both allows the
+    verifier to use independent evidence instead of accidentally replacing a
+    primary source with an encyclopaedia entry.
+    """
+    return _source_host(source), _normalize(source.title)
+
+
 def _select_diverse_sources(
     ranked: list[tuple[EvidenceSource, float]],
     *,
@@ -691,10 +702,10 @@ async def retrieve_web_evidence(
             official_results = []
 
     merged: list[EvidenceSource] = []
-    source_indexes: dict[str, int] = {}
+    source_indexes: dict[tuple[str, str], int] = {}
     for source in [*tavily_results, *official_results, *web_results, *wikipedia_results, *ddg_results]:
         source = enrich_source(source)
-        key = _normalize(source.title)
+        key = _source_merge_key(source)
         if (
             not source.snippet
             or not _is_citable_url(source.url)

@@ -73,7 +73,10 @@ async def _expand_uncertain_claim_evidence(
     ] if document_id else []
     searches = [
         retrieve_web_evidence(
-            f"{question} Factual claim to verify: {claim}",
+            # The initial question can contain several facts. Searching the
+            # unresolved claim directly retrieves evidence for that one
+            # decision instead of a loosely related page about the wider topic.
+            claim,
             settings=settings,
         )
         for claim in uncertain
