@@ -3,8 +3,8 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.schemas import EvidenceSource
-from app.services.pipeline import _merge_evidence
+from app.schemas import ClaimAssessment, EvidenceSource
+from app.services.pipeline import _claims_needing_focused_evidence, _merge_evidence
 from app.services.generator import _connection_error, _document_grounding_instruction, _list_answer_instruction
 
 
@@ -46,6 +46,19 @@ def test_merge_evidence_keeps_focused_excerpt_for_same_url() -> None:
 
     assert len(merged) == 1
     assert "Guido van Rossum" in merged[0].snippet
+
+
+def test_unresolved_claims_receive_focused_evidence_retrieval() -> None:
+    claims = [
+        ClaimAssessment(claim="Supported fact.", status="supported", confidence=0.99, rationale="ok"),
+        ClaimAssessment(claim="Missing date.", status="uncertain", confidence=0.70, rationale="review"),
+        ClaimAssessment(claim="Potentially contradicted event.", status="unsupported", confidence=0.80, rationale="check"),
+    ]
+
+    assert _claims_needing_focused_evidence(claims) == [
+        "Missing date.",
+        "Potentially contradicted event.",
+    ]
 
 
 def test_document_only_generation_requires_exact_document_values() -> None:

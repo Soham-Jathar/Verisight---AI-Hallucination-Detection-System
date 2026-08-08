@@ -53,7 +53,16 @@ def _merge_evidence(*groups):
     return merged
 
 
-async def _expand_uncertain_claim_evidence(
+def _claims_needing_focused_evidence(claims, *, limit: int = 6) -> list[str]:
+    """Return claims that need a focused retrieval pass before final scoring."""
+    return [
+        claim.claim
+        for claim in claims
+        if claim.status in {"uncertain", "unsupported"}
+    ][:limit]
+
+
+async def _expand_unresolved_claim_evidence(
     question: str,
     claims,
     evidence,
@@ -62,14 +71,20 @@ async def _expand_uncertain_claim_evidence(
     document_id: str | None = None,
     include_web: bool = False,
 ):
-    """Retrieve focused evidence only for claims the first pass could not settle."""
-    uncertain = [claim.claim for claim in claims if claim.status == "uncertain"][:4]
-    if not uncertain:
+    """Retrieve focused evidence for every non-supported factual claim.
+
+    A broad source can support a person's identity but omit a date, office, or
+    event, which may otherwise look like an NLI contradiction. This retry
+    searches each unresolved claim directly. It uses free retrieval paths so
+    one answer does not spend a Tavily request per claim.
+    """
+    unresolved = _claims_needing_focused_evidence(claims)
+    if not unresolved:
         return evidence
 
     document_results = [
         document_evidence(document_id, claim, limit=2)
-        for claim in uncertain
+        for claim in unresolved
     ] if document_id else []
     searches = [
         retrieve_web_evidence(
@@ -78,8 +93,9 @@ async def _expand_uncertain_claim_evidence(
             # decision instead of a loosely related page about the wider topic.
             claim,
             settings=settings,
+            use_tavily=False,
         )
-        for claim in uncertain
+        for claim in unresolved
     ] if include_web else []
     results = await asyncio.gather(*searches, return_exceptions=True) if searches else []
     successful = [result for result in results if isinstance(result, list)]
@@ -158,9 +174,9 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             verification_applicable
             and not math_question
             and request.mode in {VerificationMode.WEB, VerificationMode.DOCUMENT, VerificationMode.HYBRID}
-            and any(claim.status == "uncertain" for claim in claims)
+            and any(claim.status in {"uncertain", "unsupported"} for claim in claims)
         ):
-            analysis_evidence = await _expand_uncertain_claim_evidence(
+            analysis_evidence = await _expand_unresolved_claim_evidence(
                 analysis_question,
                 claims,
                 analysis_evidence,

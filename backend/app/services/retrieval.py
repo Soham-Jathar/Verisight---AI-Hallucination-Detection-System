@@ -749,6 +749,7 @@ async def retrieve_web_evidence(
     question: str,
     *,
     settings: Settings,
+    use_tavily: bool = True,
 ) -> list[EvidenceSource]:
     question_parts = _split_compound_question(question)
     if len(question_parts) > 1:
@@ -757,7 +758,7 @@ async def retrieve_web_evidence(
         merged: list[EvidenceSource] = []
         seen_urls: set[str] = set()
         for part in question_parts:
-            for source in await retrieve_web_evidence(part, settings=settings):
+            for source in await retrieve_web_evidence(part, settings=settings, use_tavily=use_tavily):
                 if source.url not in seen_urls:
                     seen_urls.add(source.url)
                     merged.append(source)
@@ -772,7 +773,7 @@ async def retrieve_web_evidence(
         search_query = _research_query(question)
         tavily_results = (
             await search_tavily(search_query, api_key=settings.tavily_api_key, client=client)
-            if settings.tavily_api_key
+            if use_tavily and settings.tavily_api_key
             else []
         )
         # Tavily can occasionally return one keyword-matched but irrelevant page
