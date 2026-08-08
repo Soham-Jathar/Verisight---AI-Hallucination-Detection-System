@@ -43,6 +43,51 @@ def _source_host(source: EvidenceSource) -> str:
     return match.group(1).lower() if match else source.url
 
 
+def _entity_tokens(text: str) -> tuple[list[str], str]:
+    """Return name-like terms and initials for direct page-title matching."""
+    raw_tokens = re.findall(r"[a-z0-9]+", _normalize(text))
+    terms = [token for token in raw_tokens if len(token) > 1]
+    # Keep one-letter components here: ``R. D. Burman`` and ``Rahul Dev
+    # Burman`` both become ``rdb``.
+    initials = "".join(token[0] for token in raw_tokens if token[0].isalpha())
+    return terms, initials
+
+
+def _claim_subject(claim: str) -> str:
+    """Extract the entity named at the start of a factual claim."""
+    match = re.match(
+        r"^(.+?)\s+(?:is|was|are|were|served|created|founded|led|became|"
+        r"received|earned|wrote|died|passed|played|worked|born)\b",
+        claim,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def _entity_title_alignment(claim: str, title: str) -> float:
+    """Prefer citations whose title is directly about the claim's entity.
+
+    This distinguishes a canonical page such as ``R. D. Burman`` from a
+    related page such as ``Meera Dev Burman``. It also handles initials such
+    as ``A. P. J.`` without hard-coding any individual name.
+    """
+    subject = _claim_subject(claim)
+    subject_terms, subject_initials = _entity_tokens(subject)
+    title_terms, title_initials = _entity_tokens(title)
+    if not subject_terms or not title_terms:
+        return 0.0
+
+    subject_set = set(subject_terms)
+    title_set = set(title_terms)
+    if subject_set <= title_set:
+        return 1.0 if subject_set == title_set else 0.85
+    if subject_initials and subject_initials == title_initials:
+        return 0.95
+
+    overlap = len(subject_set & title_set) / len(subject_set)
+    return overlap * 0.45
+
+
 def _rank_claim_sources(
     claim: str,
     evidence: list[EvidenceSource],
@@ -54,7 +99,8 @@ def _rank_claim_sources(
     ranked = sorted(
         (
             (
-                _evidence_match(claim, source) * (0.75 + 0.25 * source.credibility),
+                _evidence_match(claim, source) * (0.75 + 0.25 * source.credibility)
+                + 0.25 * _entity_title_alignment(claim, source.title),
                 source,
             )
             for source in evidence

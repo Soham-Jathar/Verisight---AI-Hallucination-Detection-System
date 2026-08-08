@@ -203,6 +203,24 @@ def test_claim_citations_require_a_strong_match_and_distinct_domains() -> None:
     assert citations[0].url.startswith("https://www.python.org/")
 
 
+def test_claim_citations_prefer_the_canonical_entity_page_over_a_relative() -> None:
+    claim = "Rahul Dev Burman was an Indian music director."
+    related_page = EvidenceSource(
+        title="Meera Dev Burman",
+        url="https://example.com/meera-burman",
+        snippet="Rahul Dev Burman was an Indian music director and composer.",
+    )
+    canonical_page = EvidenceSource(
+        title="R. D. Burman",
+        url="https://example.com/rd-burman",
+        snippet="Rahul Dev Burman was an Indian music director and composer.",
+    )
+
+    citations = select_claim_citations(claim, [related_page, canonical_page])
+
+    assert citations[0] == canonical_page
+
+
 def test_verify_claims_marks_supported_overlap() -> None:
     evidence = [
         EvidenceSource(
