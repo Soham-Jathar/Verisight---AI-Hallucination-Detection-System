@@ -193,8 +193,8 @@ def _identity_title_bonus(question: str, title: str) -> float:
     """Strongly prefer the page about the named person over a namesake."""
     if not _is_identity_question(question):
         return 0.0
-    subject_terms = _keywords(_subject_query(question))
-    title_terms = _keywords(title)
+    subject_terms = _identity_terms(_subject_query(question))
+    title_terms = _identity_terms(title)
     if not subject_terms or not title_terms:
         return 0.0
     if _identity_title_matches(subject_terms, title_terms):
@@ -238,6 +238,29 @@ def _identity_title_extras(subject_terms: set[str], title_terms: set[str]) -> se
     return title_terms - matched_terms
 
 
+def _identity_terms(text: str) -> set[str]:
+    """Tokenize a personal name while keeping grouped initials meaningful.
+
+    Search providers may title a page ``A. P. J. Abdul Kalam`` while the user
+    writes ``APJ Abdul Kalam``. Ordinary keyword extraction drops one-letter
+    initials, so identity matching needs a small, name-specific normalizer.
+    """
+    tokens = re.findall(r"[a-z0-9]+", _normalize(text))
+    terms = {token for token in tokens if len(token) > 2 and token not in STOP_WORDS}
+    index = 0
+    while index < len(tokens):
+        if len(tokens[index]) != 1 or not tokens[index].isalpha():
+            index += 1
+            continue
+        end = index
+        while end < len(tokens) and len(tokens[end]) == 1 and tokens[end].isalpha():
+            end += 1
+        if end - index >= 2:
+            terms.add("".join(tokens[index:end]))
+        index = end
+    return terms
+
+
 def _strip_html(text: str) -> str:
     return unescape(re.sub(r"<[^>]+>", "", text)).strip()
 
@@ -270,7 +293,7 @@ def _keywords(text: str) -> set[str]:
 def _source_relevance(question: str, source: EvidenceSource) -> float:
     """Score a source by topic match, with a strong preference for the requested year."""
     question_terms = _keywords(question)
-    title_terms = _keywords(source.title)
+    title_terms = _identity_terms(source.title) if _is_identity_question(question) else _keywords(source.title)
     source_terms = _keywords(f"{source.title} {source.snippet}")
     title_overlap = len(question_terms & title_terms)
     source_overlap = len(question_terms & source_terms)
@@ -292,7 +315,7 @@ def _source_relevance(question: str, source: EvidenceSource) -> float:
     host = urlparse(source.url).netloc.lower()
     if host.endswith((".ac.in", ".edu", ".edu.in", ".gov", ".gov.in")):
         score += 3
-    subject_terms = _keywords(_subject_query(question))
+    subject_terms = _identity_terms(_subject_query(question))
     if _is_identity_question(question) and subject_terms:
         # Credible profile pages sometimes include the organisation in the title
         # (for example, a NASA astronaut profile).
@@ -364,6 +387,15 @@ def _has_topic_anchor(question: str, source: EvidenceSource) -> bool:
     if relation:
         subject_terms = _keywords(relation[0])
         return bool(subject_terms) and subject_terms <= source_terms
+    if _is_identity_question(question):
+        # Identity results need the complete requested name somewhere in the
+        # title or excerpt. This is stricter than a one-word overlap (which
+        # admits unrelated namesakes) while allowing initials and minor
+        # spelling variants through the shared name matcher.
+        return _identity_title_matches(
+            _identity_terms(_subject_query(question)),
+            _identity_terms(f"{source.title} {source.snippet}"),
+        )
     anchors = _keywords(question) - GENERIC_TOPIC_TERMS
     if not anchors:
         return True
@@ -378,11 +410,11 @@ def _is_namesake_institution(question: str, source: EvidenceSource) -> bool:
     This safeguard only applies to identity questions about a non-institution.
     """
     subject = _subject_query(question)
-    subject_terms = _keywords(subject)
+    subject_terms = _identity_terms(subject)
     if not subject_terms or subject_terms & GENERIC_TOPIC_TERMS:
         return False
 
-    title_terms = _keywords(source.title)
+    title_terms = _identity_terms(source.title)
     host = urlparse(source.url).netloc.lower()
     return (
         subject_terms <= title_terms
@@ -400,8 +432,8 @@ def _is_unrelated_identity_page(question: str, source: EvidenceSource) -> bool:
     """
     if not _is_identity_question(question):
         return False
-    subject_terms = _keywords(_subject_query(question))
-    title_terms = _keywords(source.title)
+    subject_terms = _identity_terms(_subject_query(question))
+    title_terms = _identity_terms(source.title)
     if not subject_terms:
         return False
     # A one-word prompt such as "Who is Ramanujan?" can legitimately lead to
@@ -413,6 +445,13 @@ def _is_unrelated_identity_page(question: str, source: EvidenceSource) -> bool:
         extra_terms = _identity_title_extras(subject_terms, title_terms)
         if extra_terms and not extra_terms <= PROFILE_TITLE_CONTEXT_TERMS:
             return True
+        return False
+    # A reputable article can use a broad title but explicitly identify the
+    # requested person in its excerpt. Retain that evidence for NLI instead of
+    # producing a misleading "no evidence" result solely because the title is
+    # not a biography heading. Low-quality pages still follow the strict rule.
+    source_terms = _identity_terms(f"{source.title} {source.snippet}")
+    if source.credibility >= 0.84 and _identity_title_matches(subject_terms, source_terms):
         return False
     host = urlparse(source.url).netloc.lower()
     return source.credibility < 0.90 and not host.endswith((".gov", ".gov.in", ".edu", ".edu.in"))

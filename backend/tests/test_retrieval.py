@@ -84,6 +84,29 @@ def test_identity_search_rejects_a_different_person_with_the_same_name() -> None
     assert not _is_unrelated_identity_page("Who is Shubhash Chandra Bose?", spelling_variant)
 
 
+def test_identity_search_accepts_spaced_initials_in_a_person_name() -> None:
+    profile = EvidenceSource(
+        title="A. P. J. Abdul Kalam",
+        url="https://example.com/abdul-kalam",
+        snippet="A. P. J. Abdul Kalam was an Indian aerospace scientist and president.",
+    )
+
+    assert not _is_unrelated_identity_page("Who is APJ Abdul Kalam?", profile)
+    assert _has_topic_anchor("Who is APJ Abdul Kalam?", profile)
+
+
+def test_identity_search_keeps_reputable_broad_title_when_excerpt_names_person() -> None:
+    source = EvidenceSource(
+        title="India's scientific leaders",
+        url="https://www.britannica.com/example/abdul-kalam",
+        snippet="A. P. J. Abdul Kalam was an Indian aerospace scientist and president.",
+        credibility=0.84,
+    )
+
+    assert _has_topic_anchor("Who is APJ Abdul Kalam?", source)
+    assert not _is_unrelated_identity_page("Who is APJ Abdul Kalam?", source)
+
+
 def test_diverse_evidence_does_not_count_one_domain_multiple_times() -> None:
     wikipedia_profile = EvidenceSource(
         title="Python",
