@@ -99,6 +99,26 @@ def _lexical_support(claim: str, evidence: list[EvidenceSource]) -> float:
     return best
 
 
+def _strong_textual_support(claim: str, evidence: list[EvidenceSource]) -> float:
+    """Recognise a near-verbatim fact before trusting one NLI outlier.
+
+    Dates and other numeric terms are already required by ``_lexical_support``.
+    The additional polarity check prevents a claim such as "did not serve" from
+    being treated as support merely because all the surrounding words match.
+    """
+    negation_terms = {"not", "never", "neither", "no", "without"}
+    claim_terms = set(re.findall(r"[a-z0-9]+", _normalize(claim)))
+    claim_is_negative = bool(claim_terms & negation_terms)
+    best = 0.0
+    for source in evidence:
+        excerpt = _claim_evidence_excerpt(claim, source)
+        source_terms = set(re.findall(r"[a-z0-9]+", _normalize(excerpt)))
+        if bool(source_terms & negation_terms) != claim_is_negative:
+            continue
+        best = max(best, _lexical_support(claim, [source]))
+    return best
+
+
 def _option_pair_support(claim: str, evidence: list[EvidenceSource]) -> float:
     """Recognise compact table cells such as ``CS: MA, ST, EC, IN``.
 
@@ -277,6 +297,7 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         for score in scores
     )
     agreement = _source_agreement(scores, evidence)
+    strong_textual_support = _strong_textual_support(claim, evidence)
 
     # A single mismatched source must not turn a factual answer into a false
     # hallucination. With multiple sources, require agreement before returning
@@ -286,6 +307,18 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
         and contradiction_votes > entailment_votes
         and (len(scores) == 1 or contradiction_votes >= 2)
     ):
+        # NLI models can occasionally invert an obvious entailment, especially
+        # for long biographies with names, offices, and dates. Override only a
+        # single-source outlier when the evidence is a near-verbatim match and
+        # the claim's numbers and negation polarity agree with that evidence.
+        if strong_textual_support >= 0.82 and contradiction_votes == 1:
+            confidence = min(0.92, 0.55 + 0.45 * strong_textual_support)
+            return (
+                "supported",
+                confidence,
+                "Retrieved evidence directly matches the factual content of this claim.",
+                agreement,
+            )
         return "unsupported", best_contradiction, "An NLI model found the claim contradicted by retrieved evidence.", agreement
     if (
         best_entailment >= 0.55
@@ -303,7 +336,7 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
             "The retrieved document table lists this option for the requested subject.",
             agreement,
         )
-    lexical_support = _lexical_support(claim, evidence)
+    lexical_support = strong_textual_support
     if lexical_support >= 0.68 and not contradiction_votes:
         confidence = min(0.92, 0.55 + 0.45 * lexical_support)
         return "supported", confidence, "Retrieved evidence closely matches the factual content of this claim.", agreement

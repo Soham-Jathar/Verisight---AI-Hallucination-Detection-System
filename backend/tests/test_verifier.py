@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+from app.services import verifier
 from app.services.verifier import (
     _option_pair_support,
     extract_claims,
@@ -212,6 +215,34 @@ def test_verify_claims_marks_supported_overlap() -> None:
     claims = verify_claims(answer, evidence)
     assert claims[0].status == "supported"
     assert reliability_score(claims) > 0.5
+
+
+def test_near_verbatim_evidence_overrides_a_single_false_nli_contradiction(monkeypatch) -> None:
+    class FalseContradictionModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.80, 0.10, 0.10]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: FalseContradictionModel())
+    claim = "Kalam served as the president of India from 2002 to 2007."
+    evidence = [
+        EvidenceSource(
+            title="A. P. J. Abdul Kalam",
+            url="https://example.com/kalam",
+            snippet="Kalam served as the president of India from 2002 to 2007.",
+        )
+    ]
+
+    status, _confidence, rationale, _agreement = verifier._nli_verdict(claim, evidence)
+
+    assert status == "supported"
+    assert "directly matches" in rationale
 
 
 def test_reliability_rewards_credible_and_independent_evidence() -> None:
