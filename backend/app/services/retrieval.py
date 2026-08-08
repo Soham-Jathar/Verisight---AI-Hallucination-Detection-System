@@ -52,6 +52,11 @@ PROFILE_TITLE_CONTEXT_TERMS = {
     "national", "official", "profile", "space", "the", "tribute",
 }
 
+# The keyword normalizer can remove a trailing plural-like ``s``. Keep this
+# tolerance limited to identity-title matching so ``Subhas`` and ``Subhash``
+# can still resolve to the same historical person.
+IDENTITY_TERM_SIMILARITY = 0.80
+
 
 def _split_compound_question(question: str) -> list[str]:
     """Split two ordinal 'Who was ... and ...?' questions before retrieval.
@@ -191,20 +196,45 @@ def _identity_title_bonus(question: str, title: str) -> float:
     title_terms = _keywords(title)
     if not subject_terms or not title_terms:
         return 0.0
-    if subject_terms == title_terms or (
-        len(subject_terms) == len(title_terms)
-        and all(
-            any(SequenceMatcher(None, subject, candidate).ratio() >= 0.86 for candidate in title_terms)
-            for subject in subject_terms
-        )
-    ):
-        return 10.0
-    if subject_terms <= title_terms and (title_terms - subject_terms) <= PROFILE_TITLE_CONTEXT_TERMS:
-        return 8.0
+    if _identity_title_matches(subject_terms, title_terms):
+        extras = _identity_title_extras(subject_terms, title_terms)
+        if not extras:
+            return 10.0
+        if extras <= PROFILE_TITLE_CONTEXT_TERMS:
+            return 8.0
     # A one-word query such as "Ramanujan" can validly lead to a full name.
     if len(subject_terms) == 1 and subject_terms <= title_terms:
         return 4.0
     return 0.0
+
+
+def _identity_title_matches(subject_terms: set[str], title_terms: set[str]) -> bool:
+    """Match a person's title while allowing a minor spelling variant.
+
+    For example, the historic figure is commonly written as both ``Subhas``
+    and ``Subhash`` Chandra Bose.  This must not discard a valid biography,
+    but a result with an additional name still requires separate handling.
+    """
+    return bool(subject_terms) and all(
+        any(
+            SequenceMatcher(None, subject, candidate).ratio() >= IDENTITY_TERM_SIMILARITY
+            for candidate in title_terms
+        )
+        for subject in subject_terms
+    )
+
+
+def _identity_title_extras(subject_terms: set[str], title_terms: set[str]) -> set[str]:
+    """Return title words that do not correspond to the requested name."""
+    matched_terms = {
+        candidate
+        for candidate in title_terms
+        if any(
+            SequenceMatcher(None, subject, candidate).ratio() >= IDENTITY_TERM_SIMILARITY
+            for subject in subject_terms
+        )
+    }
+    return title_terms - matched_terms
 
 
 def _strip_html(text: str) -> str:
@@ -376,13 +406,12 @@ def _is_unrelated_identity_page(question: str, source: EvidenceSource) -> bool:
     # A one-word prompt such as "Who is Ramanujan?" can legitimately lead to
     # a full title such as "Srinivasa Ramanujan". For a multi-word person name,
     # however, another non-profile word in the title is a strong namesake cue:
-    # "Pilli Subhash Chandra Bose" is not the same subject as Netaji.
-    if len(subject_terms) > 1 and subject_terms <= title_terms:
-        extra_terms = title_terms - subject_terms
+    # "Pilli Subhash Chandra Bose" is not the same subject as Netaji. A minor
+    # spelling variation (Subhas/Subhash) remains a match for the same person.
+    if _identity_title_matches(subject_terms, title_terms):
+        extra_terms = _identity_title_extras(subject_terms, title_terms)
         if extra_terms and not extra_terms <= PROFILE_TITLE_CONTEXT_TERMS:
             return True
-        return False
-    if subject_terms <= title_terms:
         return False
     host = urlparse(source.url).netloc.lower()
     return source.credibility < 0.90 and not host.endswith((".gov", ".gov.in", ".edu", ".edu.in"))
@@ -711,6 +740,14 @@ async def retrieve_web_evidence(
         # blend in encyclopaedia results so that a single poor search result is
         # never the whole verification evidence set.
         wikipedia_results = await search_wikipedia(question, client=client)
+        # Tavily can return only one valid biography result. Supplement it with
+        # a free, exact-name web search so the verifier can show independent
+        # corroboration when a primary or institutional profile is available.
+        identity_results = await search_duckduckgo_web(
+            f'"{_subject_query(question)}" biography',
+            client=client,
+            limit=4,
+        ) if _is_identity_question(question) else []
         if not tavily_results:
             ddg_results = await search_duckduckgo(question, client=client)
             web_results = await search_duckduckgo_web(question, client=client)
@@ -725,7 +762,14 @@ async def retrieve_web_evidence(
 
     merged: list[EvidenceSource] = []
     source_indexes: dict[tuple[str, str], int] = {}
-    for source in [*tavily_results, *official_results, *web_results, *wikipedia_results, *ddg_results]:
+    for source in [
+        *tavily_results,
+        *identity_results,
+        *official_results,
+        *web_results,
+        *wikipedia_results,
+        *ddg_results,
+    ]:
         source = enrich_source(source)
         key = _source_merge_key(source)
         if (
