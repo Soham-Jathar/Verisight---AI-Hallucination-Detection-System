@@ -509,6 +509,26 @@ def _is_conversational_sentence(sentence: str) -> bool:
     return any(re.match(pattern, normalized, flags=re.IGNORECASE) for pattern in patterns)
 
 
+def _is_direct_answer_fragment(answer: str, question: str) -> bool:
+    """Allow a short factual answer when its question supplies the relation.
+
+    Answers in ordinary chat are often complete sentences.  In question-answer
+    datasets, and sometimes in the product, the correct response can instead
+    be a name, date, place, or title such as ``Michael Dowse``.  Treating every
+    short reply as a factual claim would make acknowledgements such as ``yes``
+    and ``okay`` look verifiable, so this accepts only a compact non-
+    conversational fragment accompanied by a meaningful question.
+    """
+    compact = answer.strip().strip(" .")
+    if not question or len(question.strip()) < 8 or not compact:
+        return False
+    if len(compact) < 2 or len(compact) > 90 or "\n" in compact or compact.endswith("?"):
+        return False
+    if _is_conversational_sentence(compact):
+        return False
+    return not re.search(r"\b(?:i|you|we)\s+(?:am|are|was|were|do|did|have|has)\b", compact, re.IGNORECASE)
+
+
 def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[str]:
     # Protect initialisms and titles before splitting sentences. Without this,
     # "earned an M.F.A. from Harvard" was incorrectly treated as two claims.
@@ -569,6 +589,11 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
             if match:
                 last_person = match.group(1)
             claims.append(claim)
+    # A direct answer like "Michael Dowse" has no verb of its own, but the
+    # associated question gives it a checkable relationship.  Preserve it for
+    # evidence matching only when no normal factual claim was already found.
+    if not claims and _is_direct_answer_fragment(answer, question):
+        claims.append(answer.strip().strip(" ."))
     return claims[:limit]
 
 

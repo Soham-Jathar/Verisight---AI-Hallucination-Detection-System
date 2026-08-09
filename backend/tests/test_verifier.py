@@ -75,6 +75,14 @@ def test_extract_claims_keeps_fact_after_conversational_sentence() -> None:
     ]
 
 
+def test_extract_claims_keeps_a_short_direct_answer_when_question_is_present() -> None:
+    assert extract_claims(
+        "Michael Dowse",
+        "Mackenzie Davis appeared in the 2013 Canadian romantic comedy film directed by whom?",
+    ) == ["Michael Dowse"]
+    assert extract_claims("yes", "Was Python created by Guido van Rossum?") == []
+
+
 def test_numbered_winner_list_becomes_complete_claims() -> None:
     answer = "1. Nethra Raghuraman\n2. Anushka Manchanda\n3. Shabir Ahluwalia"
 
