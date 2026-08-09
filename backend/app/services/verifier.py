@@ -7,10 +7,35 @@ import unicodedata
 from app.schemas import ClaimAssessment, EvidenceSource
 
 NLI_MODEL = "cross-encoder/nli-deberta-v3-small"
+SEMANTIC_RERANKER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class NLIUnavailable(RuntimeError):
     """Raised when the optional local NLI model cannot be loaded."""
+
+
+@lru_cache
+def _semantic_reranker():
+    """Load a compact local embedding model only when sentence reranking is used."""
+    try:
+        from sentence_transformers import SentenceTransformer
+
+        return SentenceTransformer(SEMANTIC_RERANKER_MODEL)
+    except Exception:
+        return None
+
+
+def _semantic_sentence_scores(claim: str, sentences: list[str]) -> list[float] | None:
+    """Return cosine similarities, or fall back cleanly when embeddings are unavailable."""
+    model = _semantic_reranker()
+    if model is None or not sentences:
+        return None
+    try:
+        vectors = model.encode([claim, *sentences], normalize_embeddings=True)
+        claim_vector = vectors[0]
+        return [float(claim_vector @ vector) for vector in vectors[1:]]
+    except Exception:
+        return None
 
 
 def _normalize(text: str) -> str:
@@ -276,10 +301,17 @@ def _claim_evidence_excerpt(claim: str, source: EvidenceSource) -> str:
     if not sentences:
         return f"{source.title}. {source.snippet[:900]}"
 
+    semantic_scores = _semantic_sentence_scores(claim, sentences)
     ranked = sorted(
         (
-            (_evidence_match(claim, EvidenceSource(title=source.title, url=source.url, snippet=sentence)), sentence)
-            for sentence in sentences
+            (
+                0.65 * _evidence_match(claim, EvidenceSource(title=source.title, url=source.url, snippet=sentence))
+                + 0.35 * semantic_scores[index]
+                if semantic_scores is not None
+                else _evidence_match(claim, EvidenceSource(title=source.title, url=source.url, snippet=sentence)),
+                sentence,
+            )
+            for index, sentence in enumerate(sentences)
         ),
         key=lambda item: item[0],
         reverse=True,

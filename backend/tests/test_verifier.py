@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from app.services import verifier
 from app.services.verifier import (
+    _claim_evidence_excerpt,
     _option_pair_support,
     extract_claims,
     limit_factual_answer,
@@ -141,6 +142,19 @@ def test_compact_document_table_supports_an_option_pair() -> None:
 
     assert _option_pair_support("Mathematics (MA) is an option for CS.", evidence) == 0.88
     assert _option_pair_support("Statistics (ST) is an option for DA.", evidence) == 0.0
+
+
+def test_semantic_reranking_can_choose_a_meaningful_evidence_sentence(monkeypatch) -> None:
+    source = EvidenceSource(
+        title="Report",
+        url="https://example.com/report",
+        snippet="The project budget was approved. Priya Rao directed the initiative. An unrelated ceremony followed.",
+    )
+    monkeypatch.setattr(verifier, "_semantic_sentence_scores", lambda _claim, _sentences: [0.10, 0.98, 0.05])
+
+    excerpt = _claim_evidence_excerpt("Who led the initiative?", source)
+
+    assert "Priya Rao directed the initiative." in excerpt
 
 
 def test_verification_sources_exclude_unrelated_pages() -> None:
