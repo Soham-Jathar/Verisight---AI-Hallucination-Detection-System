@@ -197,6 +197,42 @@ def _collapses_disputed_report_into_fact(claim: str, evidence: list[EvidenceSour
     )
 
 
+def _has_conflicting_year_evidence(claim: str, evidence: list[EvidenceSource]) -> bool:
+    """Catch a different year asserted for the same well-matched event.
+
+    NLI can treat two nearly identical sentences as entailed even when one
+    decisive year is changed.  This safeguard activates only when a sentence
+    in the evidence has strong non-year term overlap with the claim but lists
+    a different four-digit year.  It avoids penalising an article that merely
+    contains several unrelated dates.
+    """
+    claim_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(claim)))
+    if not claim_years:
+        return False
+
+    claim_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", _normalize(claim))
+        if len(token) > 2 and token not in claim_years
+    }
+    if len(claim_terms) < 3:
+        return False
+
+    for source in evidence:
+        sentences = re.split(r"(?<=[.!?;])\s+", source.snippet)
+        for sentence in sentences:
+            sentence_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(sentence)))
+            if not sentence_years or sentence_years & claim_years:
+                continue
+            sentence_terms = {
+                token for token in re.findall(r"[a-z0-9]+", _normalize(sentence)) if len(token) > 2
+            }
+            overlap = len(claim_terms & sentence_terms) / len(claim_terms)
+            if overlap >= 0.55:
+                return True
+    return False
+
+
 def _option_pair_support(claim: str, evidence: list[EvidenceSource]) -> float:
     """Recognise compact table cells such as ``CS: MA, ST, EC, IN``.
 
@@ -363,6 +399,13 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
             0.82,
             "Retrieved evidence describes this event as unverified or disputed, not an established fact.",
             0.55,
+        )
+    if _has_conflicting_year_evidence(claim, evidence):
+        return (
+            "unsupported",
+            0.86,
+            "Retrieved evidence gives a different year for the same event.",
+            0.70,
         )
 
     model = _nli_model()

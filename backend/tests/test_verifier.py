@@ -304,6 +304,27 @@ def test_disputed_report_is_not_verified_as_an_established_fact(monkeypatch) -> 
     assert "unverified or disputed" in rationale
 
 
+def test_conflicting_year_for_the_same_event_is_unsupported() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Satyam case",
+            url="https://example.com/satyam",
+            snippet=(
+                "In 2009, Satyam Computers Services was at the center of a $1.6 billion fraud case "
+                "after its chairman admitted inflating profits with fictitious assets."
+            ),
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "Satyam Computers Services was caught in a $1.6 billion fraud case in 2001.", evidence
+    )
+
+    assert status == "unsupported"
+    assert confidence == 0.86
+    assert "different year" in rationale
+
+
 def test_reliability_rewards_credible_and_independent_evidence() -> None:
     high_quality = ClaimAssessment(
         claim="Python was created by Guido van Rossum.",
