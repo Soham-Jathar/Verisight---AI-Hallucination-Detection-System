@@ -271,6 +271,39 @@ def test_near_verbatim_evidence_overrides_a_single_false_nli_contradiction(monke
     assert "directly matches" in rationale
 
 
+def test_disputed_report_is_not_verified_as_an_established_fact(monkeypatch) -> None:
+    class NeutralModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.05, 0.10, 0.85]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: NeutralModel())
+    evidence = [
+        EvidenceSource(
+            title="News report",
+            url="https://example.com/report",
+            snippet=(
+                "Two magazines reported that a video was recovered from the wreckage. "
+                "Investigators said they were not aware of any such video and called the reports completely wrong."
+            ),
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "A video was recovered by investigators from the wreckage.", evidence
+    )
+
+    assert status == "unsupported"
+    assert confidence == 0.82
+    assert "unverified or disputed" in rationale
+
+
 def test_reliability_rewards_credible_and_independent_evidence() -> None:
     high_quality = ClaimAssessment(
         claim="Python was created by Guido van Rossum.",

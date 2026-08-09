@@ -165,6 +165,38 @@ def _strong_textual_support(claim: str, evidence: list[EvidenceSource]) -> float
     return best
 
 
+def _collapses_disputed_report_into_fact(claim: str, evidence: list[EvidenceSource]) -> bool:
+    """Detect an answer that removes an important uncertainty attribution.
+
+    A search result can say that a newspaper *reported* an event while an
+    authority says the report is unverified or wrong.  Repeating the event as
+    an established fact is not evidence-grounded, even when many content words
+    overlap.  This rule is intentionally narrow: it requires a factual event,
+    a sufficiently related source, both report-attribution and denial language,
+    and no uncertainty marker in the generated claim itself.
+    """
+    normalized_claim = _normalize(claim)
+    if re.search(r"\b(?:reportedly|allegedly|according to|said to|claimed)\b", normalized_claim):
+        return False
+    if not re.search(
+        r"\b(?:recovered|found|confirmed|proven|established|occurred|caused|responsible|exists)\b",
+        normalized_claim,
+    ):
+        return False
+
+    attribution = re.compile(r"\b(?:reported|reports|claimed|claims|alleged|purported|according to|source said)\b")
+    denial = re.compile(
+        r"\b(?:not aware|no (?:evidence|confirmation|proof)|not confirmed|unverified|"
+        r"completely wrong|unwarranted|denied|hadn't|hasn't|have not|has not)\b"
+    )
+    return any(
+        attribution.search(_normalize(source.snippet))
+        and denial.search(_normalize(source.snippet))
+        and _evidence_match(claim, source) >= 0.45
+        for source in evidence
+    )
+
+
 def _option_pair_support(claim: str, evidence: list[EvidenceSource]) -> float:
     """Recognise compact table cells such as ``CS: MA, ST, EC, IN``.
 
@@ -324,6 +356,14 @@ def _score_labels(model, scores: list[float]) -> dict[str, float]:
 def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float, str, float]:
     if not evidence:
         return "unsupported", 0.0, "No evidence source was available for this claim.", 0.0
+
+    if _collapses_disputed_report_into_fact(claim, evidence):
+        return (
+            "unsupported",
+            0.82,
+            "Retrieved evidence describes this event as unverified or disputed, not an established fact.",
+            0.55,
+        )
 
     model = _nli_model()
     pairs = [(_claim_evidence_excerpt(claim, source), claim) for source in evidence]
