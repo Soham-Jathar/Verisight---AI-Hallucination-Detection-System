@@ -62,6 +62,23 @@ held-out dataset built from public benchmarks such as FEVER, HaluEval, or
 RAGTruth, document the source and split, and never tune thresholds on the same
 test cases used for the final score.
 
+## VeriSight regression scenarios
+
+`datasets/verisight_regression.jsonl` is a small, manually authored acceptance
+set for product-specific behaviour: web facts, uploaded-document tables,
+follow-up answers, disputed reports, and altered years. It protects known bugs
+from returning while the product evolves.
+
+It is **not** a substitute for HaluEval or a primary research result: the
+examples are curated by the project team and therefore should not be presented
+as an unbiased accuracy score. For a defensible custom evaluation, team members
+should independently label a larger held-out set using the same JSONL schema.
+
+```powershell
+.\backend\.venv\Scripts\python.exe evaluation\run.py `
+  --dataset evaluation\datasets\verisight_regression.jsonl
+```
+
 ## HaluEval QA benchmark
 
 HaluEval QA includes source knowledge, a grounded answer, and a deliberately
