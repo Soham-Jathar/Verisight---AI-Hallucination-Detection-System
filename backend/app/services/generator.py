@@ -18,13 +18,11 @@ PROVIDER_LABELS = {
 
 
 def provider_info(settings: Settings) -> list[ProviderInfo]:
+    # The public product selector deliberately exposes only Gemini, Groq, and
+    # their side-by-side comparison. The evidence baseline and OpenRouter
+    # adapter remain available internally for reproducible evaluation or
+    # maintenance, but are not end-user choices.
     providers = [
-        ProviderInfo(
-            id=LLMProvider.EVIDENCE,
-            label=PROVIDER_LABELS[LLMProvider.EVIDENCE],
-            model="retrieval-summary",
-            configured=True,
-        ),
         ProviderInfo(
             id=LLMProvider.GEMINI,
             label=PROVIDER_LABELS[LLMProvider.GEMINI],
@@ -37,18 +35,8 @@ def provider_info(settings: Settings) -> list[ProviderInfo]:
             model=settings.groq_model,
             configured=bool(settings.groq_api_key),
         ),
-        ProviderInfo(
-            id=LLMProvider.OPENROUTER,
-            label=PROVIDER_LABELS[LLMProvider.OPENROUTER],
-            model=settings.openrouter_model,
-            configured=bool(settings.openrouter_api_key),
-        ),
     ]
-    configured_llms = sum(
-        provider.configured
-        for provider in providers
-        if provider.id not in {LLMProvider.EVIDENCE, LLMProvider.COMPARE}
-    )
+    configured_llms = sum(provider.configured for provider in providers)
     providers.append(
         ProviderInfo(
             id=LLMProvider.COMPARE,

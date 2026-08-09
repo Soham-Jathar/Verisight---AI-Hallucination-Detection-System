@@ -34,3 +34,15 @@ export async function saveConversation(conversation, userId) {
 
   if (error) throw error
 }
+
+export async function deleteSavedConversation(conversationId, userId) {
+  if (!supabase) return
+
+  const { error } = await supabase
+    .from('conversations')
+    .delete()
+    .eq('id', conversationId)
+    .eq('user_id', userId)
+
+  if (error) throw error
+}

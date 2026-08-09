@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { loadSavedConversations, saveConversation } from './lib/conversations'
+import { deleteSavedConversation, loadSavedConversations, saveConversation } from './lib/conversations'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import EvaluationDashboard from './EvaluationDashboard'
 
@@ -15,8 +15,11 @@ const statusLabel = {
 const providerLabel = {
   gemini: 'Gemini',
   groq: 'Groq',
-  openrouter: 'OpenRouter',
 }
+
+// Keep the product UI focused on the two supported user-facing LLMs and their
+// comparison mode. Research baselines and provider experiments remain internal.
+const visibleProviderIds = new Set(['gemini', 'groq', 'compare'])
 
 async function readApiPayload(response) {
   const body = await response.text()
@@ -173,6 +176,8 @@ function App() {
   const [user, setUser] = useState(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const [view, setView] = useState('chat')
   const [evaluationReport, setEvaluationReport] = useState(null)
   const [evaluationLoading, setEvaluationLoading] = useState(false)
@@ -186,8 +191,11 @@ function App() {
         const [healthResponse, providersResponse] = await Promise.all([fetch(`${API_URL}/health`), fetch(`${API_URL}/api/providers`)])
         if (!healthResponse.ok || !providersResponse.ok) throw new Error('Unavailable')
         const providerData = await providersResponse.json()
-        setProviders(providerData)
-        const firstConfigured = providerData.find((item) => item.id === 'gemini' && item.configured) ?? providerData.find((item) => item.configured)
+        const visibleProviders = providerData.filter((item) => visibleProviderIds.has(item.id))
+        setProviders(visibleProviders)
+        const firstConfigured = visibleProviders.find((item) => item.id === 'gemini' && item.configured)
+          ?? visibleProviders.find((item) => item.id === 'groq' && item.configured)
+          ?? visibleProviders.find((item) => item.id === 'compare' && item.configured)
         if (firstConfigured) setProvider(firstConfigured.id)
         setApiStatus('online')
       } catch { setApiStatus('offline') }
@@ -237,6 +245,52 @@ function App() {
     setDraft('')
     setError('')
     setView('chat')
+  }
+
+  function startRename(conversation) {
+    setRenamingId(conversation.id)
+    setRenameDraft(conversation.title)
+    setError('')
+  }
+
+  function cancelRename() {
+    setRenamingId(null)
+    setRenameDraft('')
+  }
+
+  async function renameConversation(conversation) {
+    const title = renameDraft.trim().slice(0, 80)
+    if (!title) {
+      setError('Chat names cannot be empty.')
+      return
+    }
+
+    const renamedConversation = { ...conversation, title }
+    try {
+      if (user) await saveConversation(renamedConversation, user.id)
+      setConversations((current) => current.map((item) => item.id === conversation.id ? renamedConversation : item))
+      cancelRename()
+      setError('')
+    } catch {
+      setError('The chat could not be renamed. Please try again.')
+    }
+  }
+
+  async function deleteConversation(conversation) {
+    const confirmed = window.confirm(`Delete “${conversation.title}”? This cannot be undone.`)
+    if (!confirmed) return
+
+    try {
+      if (user) await deleteSavedConversation(conversation.id, user.id)
+      const remaining = conversations.filter((item) => item.id !== conversation.id)
+      const nextConversations = remaining.length ? remaining : [createConversation()]
+      setConversations(nextConversations)
+      if (activeId === conversation.id) setActiveId(nextConversations[0].id)
+      if (renamingId === conversation.id) cancelRename()
+      setError('')
+    } catch {
+      setError('The chat could not be deleted. Please try again.')
+    }
   }
 
   async function loadEvaluationDashboard() {
@@ -364,7 +418,18 @@ function App() {
         ? <><strong title={user.email}>{user.email}</strong><button type="button" onClick={signOut}>Sign out</button></>
         : <button type="button" onClick={openAuth}>{isSupabaseConfigured ? 'Sign in to save chats' : 'Configure saved history'}</button>}</div>
       <div className="history-heading"><span>History</span><small>{historyLoading ? 'Loading...' : user ? 'Saved' : 'This session'}</small></div>
-      <nav className="chat-history" aria-label="Chat history">{conversations.map((conversation) => <button type="button" key={conversation.id} className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}><span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small></button>)}</nav>
+      <nav className="chat-history" aria-label="Chat history">{conversations.map((conversation) => <div className="history-row" key={conversation.id}>
+        {renamingId === conversation.id
+          ? <form className="rename-form" onSubmit={(event) => { event.preventDefault(); void renameConversation(conversation) }}>
+            <input value={renameDraft} onChange={(event) => setRenameDraft(event.target.value)} maxLength="80" autoFocus aria-label="New chat name" onKeyDown={(event) => { if (event.key === 'Escape') cancelRename() }} />
+            <button type="submit">Save</button><button type="button" onClick={cancelRename}>Cancel</button>
+          </form>
+          : <><button type="button" className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}><span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small></button>
+            <div className="history-actions">
+              <button type="button" className="history-action" onClick={() => startRename(conversation)} aria-label={`Rename ${conversation.title}`} title="Rename chat">Rename</button>
+              <button type="button" className="history-action delete" onClick={() => deleteConversation(conversation)} aria-label={`Delete ${conversation.title}`} title="Delete chat">Delete</button>
+            </div></>}
+      </div>)}</nav>
       <div className="sidebar-footer">
         <span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span>
         <p>Use web, PDF, or both as verification evidence.</p>
