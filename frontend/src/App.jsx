@@ -419,16 +419,16 @@ function App() {
         : <button type="button" onClick={openAuth}>{isSupabaseConfigured ? 'Sign in to save chats' : 'Configure saved history'}</button>}</div>
       <div className="history-heading"><span>History</span><small>{historyLoading ? 'Loading...' : user ? 'Saved' : 'This session'}</small></div>
       <nav className="chat-history" aria-label="Chat history">{conversations.map((conversation) => <div className="history-row" key={conversation.id}>
-        {renamingId === conversation.id
+        {user && renamingId === conversation.id
           ? <form className="rename-form" onSubmit={(event) => { event.preventDefault(); void renameConversation(conversation) }}>
             <input value={renameDraft} onChange={(event) => setRenameDraft(event.target.value)} maxLength="80" autoFocus aria-label="New chat name" onKeyDown={(event) => { if (event.key === 'Escape') cancelRename() }} />
             <button type="submit">Save</button><button type="button" onClick={cancelRename}>Cancel</button>
           </form>
           : <><button type="button" className={conversation.id === activeConversation?.id ? 'history-item active' : 'history-item'} onClick={() => setActiveId(conversation.id)}><span>{conversation.title}</span><small>{conversation.messages.length ? `${Math.ceil(conversation.messages.length / 2)} message${conversation.messages.length > 2 ? 's' : ''}` : 'Empty'}</small></button>
-            <div className="history-actions">
+            {user && <div className="history-actions">
               <button type="button" className="history-action" onClick={() => startRename(conversation)} aria-label={`Rename ${conversation.title}`} title="Rename chat">Rename</button>
               <button type="button" className="history-action delete" onClick={() => deleteConversation(conversation)} aria-label={`Delete ${conversation.title}`} title="Delete chat">Delete</button>
-            </div></>}
+            </div>}</>}
       </div>)}</nav>
       <div className="sidebar-footer">
         <span className={`api-status ${apiStatus}`}><i></i> API {apiStatus}</span>
