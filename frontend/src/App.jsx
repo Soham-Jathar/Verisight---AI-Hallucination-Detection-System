@@ -21,6 +21,18 @@ const providerLabel = {
 // comparison mode. Research baselines and provider experiments remain internal.
 const visibleProviderIds = new Set(['gemini', 'groq', 'compare'])
 
+const passwordRules = [
+  ['At least 8 characters', (value) => value.length >= 8],
+  ['One uppercase letter', (value) => /[A-Z]/.test(value)],
+  ['One lowercase letter', (value) => /[a-z]/.test(value)],
+  ['One number', (value) => /\d/.test(value)],
+  ['One special character', (value) => /[^A-Za-z0-9]/.test(value)],
+]
+
+function strongPassword(value) {
+  return passwordRules.every(([, test]) => test(value))
+}
+
 async function readApiPayload(response) {
   const body = await response.text()
   if (!body) return {}
@@ -57,6 +69,7 @@ function AuthDialog({ open, onClose, onAuthenticated }) {
   const [mode, setMode] = useState('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordVisible, setPasswordVisible] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -65,6 +78,10 @@ function AuthDialog({ open, onClose, onAuthenticated }) {
   async function submit(event) {
     event.preventDefault()
     if (!supabase) return
+    if (mode === 'signup' && !strongPassword(password)) {
+      setMessage('Use at least 8 characters, including uppercase, lowercase, a number, and a special character.')
+      return
+    }
     setBusy(true)
     setMessage('')
     const result = mode === 'signin'
@@ -86,11 +103,19 @@ function AuthDialog({ open, onClose, onAuthenticated }) {
       <span>{mode === 'signin' ? 'Sign in to keep your verification history across devices.' : 'Create a free account to save your verification history.'}</span>
       <form onSubmit={submit}>
         <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
-        <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="6" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></label>
+        <label>Password
+          <span className="password-field">
+            <input type={passwordVisible ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === 'signup' ? 8 : undefined} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} aria-describedby={mode === 'signup' ? 'password-requirements' : undefined} />
+            <button className="password-visibility" type="button" onClick={() => setPasswordVisible((visible) => !visible)} aria-label={passwordVisible ? 'Hide password' : 'Show password'} aria-pressed={passwordVisible}>{passwordVisible ? 'Hide' : 'Show'}</button>
+          </span>
+        </label>
+        {mode === 'signup' && <ul className="password-requirements" id="password-requirements" aria-label="Password requirements">
+          {passwordRules.map(([label, test]) => <li key={label} className={test(password) ? 'met' : ''}>{test(password) ? '✓' : '○'} {label}</li>)}
+        </ul>}
         <button type="submit" disabled={busy}>{busy ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
       </form>
       {message && <small className="auth-message">{message}</small>}
-      <button className="auth-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage('') }}>{mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>
+      <button className="auth-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); setPasswordVisible(false) }}>{mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>
     </section>
   </div>
 }

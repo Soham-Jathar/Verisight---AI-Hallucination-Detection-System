@@ -49,6 +49,12 @@
 .auth-dialog label { display: grid; gap: 6px; color: #b8c6e2; font-size: 11px; font-weight: 600; }
 .auth-dialog input { width: 100%; padding: 10px; color: #eff4ff; border: 1px solid #aebce43b; border-radius: 7px; outline: none; background: #10182a; }
 .auth-dialog input:focus { border-color: #9eaeff; }
+.password-field { position: relative; display: block; }
+.auth-dialog .password-field input { padding-right: 57px; }
+.auth-dialog form .password-visibility { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); padding: 4px 6px; color: #b9c7ed; border: 0; border-radius: 5px; background: transparent; font-size: 10px; font-weight: 600; }
+.auth-dialog form .password-visibility:hover { color: #edf2ff; background: #2a3859; }
+.password-requirements { display: grid; gap: 3px; margin: -5px 0 0; padding: 0; color: #7d8daf; font-size: 10px; list-style: none; }
+.password-requirements li.met { color: #8ce1ae; }
 .auth-dialog form button { padding: 10px; color: white; border: 0; border-radius: 7px; background: #6372d4; font-weight: 700; }
 .auth-dialog form button:disabled { opacity: .6; }
 .auth-close { position: absolute; top: 12px; right: 14px; color: #aab8d4; border: 0; background: transparent; font-size: 23px; }
