@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { deleteSavedConversation, loadSavedConversations, saveConversation } from './lib/conversations'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
-import EvaluationDashboard from './EvaluationDashboard'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
-const evaluationDashboardEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_EVALUATION_DASHBOARD === 'true'
 
 const statusLabel = {
   supported: 'Supported',
@@ -249,10 +247,6 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameDraft, setRenameDraft] = useState('')
-  const [view, setView] = useState('chat')
-  const [evaluationReport, setEvaluationReport] = useState(null)
-  const [evaluationLoading, setEvaluationLoading] = useState(false)
-  const [evaluationError, setEvaluationError] = useState('')
   const fileInputRef = useRef(null)
   const recognitionRef = useRef(null)
 
@@ -319,7 +313,6 @@ function App() {
     setActiveId(conversation.id)
     setDraft('')
     setError('')
-    setView('chat')
   }
 
   function startRename(conversation) {
@@ -366,24 +359,6 @@ function App() {
     } catch {
       setError('The chat could not be deleted. Please try again.')
     }
-  }
-
-  async function loadEvaluationDashboard() {
-    setEvaluationLoading(true)
-    setEvaluationError('')
-    try {
-      const response = await fetch(`${API_URL}/api/evaluation/latest`)
-      const payload = await readApiPayload(response)
-      if (!response.ok) throw new Error(apiErrorMessage(payload, 'No evaluation report is available yet.'))
-      setEvaluationReport(payload)
-    } catch (loadError) {
-      setEvaluationError(loadError instanceof Error ? loadError.message : 'The evaluation report could not be loaded.')
-    } finally { setEvaluationLoading(false) }
-  }
-
-  async function openEvaluationDashboard() {
-    setView('evaluation')
-    await loadEvaluationDashboard()
   }
 
   async function persistConversation(conversation) {
@@ -489,7 +464,6 @@ function App() {
     <aside className="sidebar">
       <a className="brand" href="#top"><span className="brand-mark">V</span><span>VeriSight</span></a>
       <button className="new-chat" type="button" onClick={startNewChat}>+ New chat</button>
-      {evaluationDashboardEnabled && <button className="research-link" type="button" onClick={openEvaluationDashboard}>Research metrics</button>}
       <div className="account-panel sidebar-account">{user
         ? <><strong title={user.email}>{user.email}</strong><button type="button" onClick={signOut}>Sign out</button></>
         : <button type="button" onClick={openAuth}>{isSupabaseConfigured ? 'Sign in to save chats' : 'Configure saved history'}</button>}</div>
@@ -521,13 +495,11 @@ function App() {
           <label className="verify-toggle"><input type="checkbox" checked={uncertaintyEnabled} onChange={(event) => setUncertaintyEnabled(event.target.checked)} /><span></span>Uncertainty</label>
         </div>
       </header>
-      {view === 'evaluation'
-        ? <EvaluationDashboard report={evaluationReport} loading={evaluationLoading} error={evaluationError} onBack={() => setView('chat')} onRefresh={loadEvaluationDashboard} />
-        : <section className="message-thread" aria-live="polite">
+      <section className="message-thread" aria-live="polite">
         {!activeConversation?.messages.length && <div className="welcome-card"><span className="assistant-avatar large">V</span><div><h2>What would you like to know?</h2><p>Ask by typing or voice. Attach a PDF to verify answers against its contents.</p><div className="suggestions"><button type="button" onClick={() => setDraft('Who created the Python programming language?')}>Who created Python?</button><button type="button" onClick={() => setDraft('Explain quantum computing in simple terms.')}>Explain quantum computing</button></div></div></div>}
         {activeConversation?.messages.map((message) => <MessageBubble key={message.id} message={message} />)}
-      </section>}
-      {view === 'chat' && <form className="composer" onSubmit={handleSubmit}>
+      </section>
+      <form className="composer" onSubmit={handleSubmit}>
         {document && <div className="document-chip"><span>PDF: {document.filename} ({document.pages} page{document.pages === 1 ? '' : 's'})</span><button type="button" onClick={() => { setDocument(null); setEvidenceMode('web') }} aria-label="Remove PDF">×</button></div>}
         <div className="composer-row">
           <input ref={fileInputRef} type="file" accept="application/pdf" hidden onChange={uploadPdf} />
@@ -538,7 +510,7 @@ function App() {
         </div>
         <p>{verifyEnabled ? `Verification is on: using ${evidenceMode === 'document' ? 'your PDF' : evidenceMode === 'hybrid' ? 'web and your PDF' : 'web evidence'}.${uncertaintyEnabled ? ' Uncertainty uses two additional answer samples.' : ''}` : 'Verification is off: this response will not receive a reliability score.'}</p>
         {error && <strong className="error">{error}</strong>}
-      </form>}
+      </form>
       <AuthDialog
         open={authOpen}
         recoveryRequested={passwordRecoveryOpen}
