@@ -65,30 +65,71 @@ function createConversation() {
   return { id: crypto.randomUUID(), title: 'New conversation', messages: [] }
 }
 
-function AuthDialog({ open, onClose, onAuthenticated }) {
+function AuthDialog({ open, recoveryRequested, onClose, onAuthenticated, onRecoveryHandled }) {
   const [mode, setMode] = useState('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (recoveryRequested) {
+      setMode('reset')
+      setMessage('Choose a new password for your account.')
+      setPassword('')
+      setConfirmPassword('')
+      setPasswordVisible(false)
+    }
+  }, [recoveryRequested])
+
+  useEffect(() => {
+    if (!open) {
+      setMode('signin')
+      setEmail('')
+      setPassword('')
+      setConfirmPassword('')
+      setMessage('')
+      setPasswordVisible(false)
+    }
+  }, [open])
 
   if (!open) return null
 
   async function submit(event) {
     event.preventDefault()
     if (!supabase) return
-    if (mode === 'signup' && !strongPassword(password)) {
+    if ((mode === 'signup' || mode === 'reset') && !strongPassword(password)) {
       setMessage('Use at least 8 characters, including uppercase, lowercase, a number, and a special character.')
+      return
+    }
+    if (mode === 'reset' && password !== confirmPassword) {
+      setMessage('The two passwords do not match.')
       return
     }
     setBusy(true)
     setMessage('')
-    const result = mode === 'signin'
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password })
+    let result
+    if (mode === 'signin') result = await supabase.auth.signInWithPassword({ email, password })
+    else if (mode === 'signup') result = await supabase.auth.signUp({ email, password })
+    else if (mode === 'forgot') {
+      result = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
+    } else {
+      result = await supabase.auth.updateUser({ password })
+    }
     setBusy(false)
     if (result.error) { setMessage(result.error.message); return }
+    if (mode === 'forgot') {
+      setMessage('If an account exists for that email, a password-reset link has been sent. Check your inbox and spam folder.')
+      return
+    }
+    if (mode === 'reset') {
+      window.history.replaceState({}, document.title, window.location.pathname)
+      onRecoveryHandled()
+      setMessage('Password updated. You are signed in.')
+      return
+    }
     if (mode === 'signup' && !result.data.session) {
       setMessage('Account created. Check your email to confirm it, then sign in.')
       return
@@ -99,23 +140,27 @@ function AuthDialog({ open, onClose, onAuthenticated }) {
   return <div className="auth-backdrop" role="presentation" onMouseDown={onClose}>
     <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title" onMouseDown={(event) => event.stopPropagation()}>
       <button className="auth-close" type="button" onClick={onClose} aria-label="Close">×</button>
-      <p>VERISIGHT ACCOUNT</p><h2 id="auth-title">{mode === 'signin' ? 'Save your conversations' : 'Create an account'}</h2>
-      <span>{mode === 'signin' ? 'Sign in to keep your verification history across devices.' : 'Create a free account to save your verification history.'}</span>
+      <p>VERISIGHT ACCOUNT</p><h2 id="auth-title">{mode === 'signin' ? 'Save your conversations' : mode === 'signup' ? 'Create an account' : mode === 'forgot' ? 'Reset your password' : 'Choose a new password'}</h2>
+      <span>{mode === 'signin' ? 'Sign in to keep your verification history across devices.' : mode === 'signup' ? 'Create a free account to save your verification history.' : mode === 'forgot' ? 'Enter your account email and we will send a secure reset link.' : 'Use a strong password to secure your VeriSight account.'}</span>
       <form onSubmit={submit}>
-        <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
-        <label>Password
+        {mode !== 'reset' && <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>}
+        {mode !== 'forgot' && <label>{mode === 'reset' ? 'New password' : 'Password'}
           <span className="password-field">
-            <input type={passwordVisible ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === 'signup' ? 8 : undefined} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} aria-describedby={mode === 'signup' ? 'password-requirements' : undefined} />
+            <input type={passwordVisible ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === 'signup' || mode === 'reset' ? 8 : undefined} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} aria-describedby={mode === 'signup' || mode === 'reset' ? 'password-requirements' : undefined} />
             <button className="password-visibility" type="button" onClick={() => setPasswordVisible((visible) => !visible)} aria-label={passwordVisible ? 'Hide password' : 'Show password'} aria-pressed={passwordVisible}>{passwordVisible ? 'Hide' : 'Show'}</button>
           </span>
-        </label>
-        {mode === 'signup' && <ul className="password-requirements" id="password-requirements" aria-label="Password requirements">
+        </label>}
+        {mode === 'reset' && <label>Confirm new password
+          <input type={passwordVisible ? 'text' : 'password'} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required minLength="8" autoComplete="new-password" />
+        </label>}
+        {(mode === 'signup' || mode === 'reset') && <ul className="password-requirements" id="password-requirements" aria-label="Password requirements">
           {passwordRules.map(([label, test]) => <li key={label} className={test(password) ? 'met' : ''}>{test(password) ? '✓' : '○'} {label}</li>)}
         </ul>}
-        <button type="submit" disabled={busy}>{busy ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
+        <button type="submit" disabled={busy}>{busy ? 'Please wait...' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : 'Update password'}</button>
       </form>
       {message && <small className="auth-message">{message}</small>}
-      <button className="auth-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); setPasswordVisible(false) }}>{mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>
+      {mode === 'signin' && <button className="auth-switch auth-forgot" type="button" onClick={() => { setMode('forgot'); setMessage(''); setPassword(''); setPasswordVisible(false) }}>Forgot password?</button>}
+      {mode !== 'reset' && <button className="auth-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); setPassword(''); setConfirmPassword(''); setPasswordVisible(false) }}>{mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>}
     </section>
   </div>
 }
@@ -200,6 +245,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [user, setUser] = useState(null)
   const [authOpen, setAuthOpen] = useState(false)
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -235,8 +281,12 @@ function App() {
     supabase.auth.getUser().then(({ data }) => {
       if (mounted) setUser(data.user ?? null)
     })
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
       if (mounted) setUser(session?.user ?? null)
+      if (mounted && event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryOpen(true)
+        setAuthOpen(true)
+      }
     })
     return () => { mounted = false; subscription.subscription.unsubscribe() }
   }, [])
@@ -350,6 +400,7 @@ function App() {
       setError('Saved history needs Supabase configuration before sign-in can be enabled.')
       return
     }
+    setPasswordRecoveryOpen(false)
     setAuthOpen(true)
   }
 
@@ -488,7 +539,13 @@ function App() {
         <p>{verifyEnabled ? `Verification is on: using ${evidenceMode === 'document' ? 'your PDF' : evidenceMode === 'hybrid' ? 'web and your PDF' : 'web evidence'}.${uncertaintyEnabled ? ' Uncertainty uses two additional answer samples.' : ''}` : 'Verification is off: this response will not receive a reliability score.'}</p>
         {error && <strong className="error">{error}</strong>}
       </form>}
-      <AuthDialog open={authOpen} onClose={() => setAuthOpen(false)} onAuthenticated={() => setAuthOpen(false)} />
+      <AuthDialog
+        open={authOpen}
+        recoveryRequested={passwordRecoveryOpen}
+        onClose={() => { setAuthOpen(false); setPasswordRecoveryOpen(false) }}
+        onAuthenticated={() => setAuthOpen(false)}
+        onRecoveryHandled={() => setPasswordRecoveryOpen(false)}
+      />
     </section>
   </main>
 }
