@@ -220,25 +220,35 @@ async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> Analyz
             if source.url.startswith("document://")
         ][:1]
     if verification_applicable and not math_question and primary_evidence and unsupported:
+        # A correction must be based on evidence that already supported at
+        # least one assessed claim. Giving the generator every retrieved page
+        # invites it to add loosely related details from an uncertain source.
+        supported_claims = [claim for claim in claims if claim.status == "supported"]
+        correction_evidence = select_verification_sources(
+            supported_claims,
+            primary_evidence,
+            limit=3,
+        )
         try:
-            corrected_answer, _ = await generate_correction(
-                # Use the context-resolved request, never a bare follow-up such
-                # as "List only the names". Otherwise a correction can answer a
-                # loosely related detail from the evidence instead of the user's
-                # actual topic.
-                analysis_question,
-                primary_evidence,
-                settings=settings,
-                provider=primary.provider,
-            )
-            correction_citations = select_citations(corrected_answer, primary_evidence)
-            # A correction without a directly relevant citation would look
-            # authoritative while being no safer than the original answer.
-            if correction_citations:
-                correction = CorrectedAnswer(
-                    answer=corrected_answer,
-                    citations=correction_citations,
+            if correction_evidence:
+                corrected_answer, _ = await generate_correction(
+                    # Use the context-resolved request, never a bare follow-up such
+                    # as "List only the names". Otherwise a correction can answer a
+                    # loosely related detail from the evidence instead of the user's
+                    # actual topic.
+                    analysis_question,
+                    correction_evidence,
+                    settings=settings,
+                    provider=primary.provider,
                 )
+                correction_citations = select_citations(corrected_answer, correction_evidence)
+                # A correction without a directly relevant citation would look
+                # authoritative while being no safer than the original answer.
+                if correction_citations:
+                    correction = CorrectedAnswer(
+                        answer=corrected_answer,
+                        citations=correction_citations,
+                    )
         except ValueError:
             # A correction is helpful but must never hide the original analysis result.
             correction = None

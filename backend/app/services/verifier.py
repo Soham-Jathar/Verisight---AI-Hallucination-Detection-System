@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from functools import lru_cache
 import re
 import unicodedata
@@ -113,6 +114,45 @@ def _entity_title_alignment(claim: str, title: str) -> float:
     return overlap * 0.45
 
 
+def _entity_text_alignment(claim: str, text: str) -> float:
+    """Measure whether a source is actually about the claim's named subject.
+
+    This is deliberately tolerant of ordinary spelling variants (for example
+    ``Subhas``/``Subhash``) and initials, but a page that merely shares a
+    generic word such as ``India`` or ``history`` receives no entity credit.
+    """
+    subject = _claim_subject(claim)
+    subject_terms, subject_initials = _entity_tokens(subject)
+    text_terms, text_initials = _entity_tokens(text)
+    if not subject_terms or not text_terms:
+        return 0.0
+    if subject_initials and subject_initials == text_initials:
+        return 1.0
+
+    matches = sum(
+        any(SequenceMatcher(None, term, candidate).ratio() >= 0.82 for candidate in text_terms)
+        for term in set(subject_terms)
+    )
+    return matches / len(set(subject_terms))
+
+
+def _is_indirect_collection_source(claim: str, source: EvidenceSource) -> bool:
+    """Reject generic list pages when their title is not about the claim entity.
+
+    A list of aircraft incidents can mention a historic figure, yet it is not
+    a suitable biography citation or the sole basis for contradicting a claim.
+    Direct list pages such as ``List of awards received by X`` are retained
+    because their title still identifies the requested subject.
+    """
+    if not _claim_subject(claim):
+        return False
+    generic_collection = re.match(
+        r"^\s*(?:list|timeline|history|category|index|outline)\s+(?:of|for)\b",
+        _normalize(source.title),
+    )
+    return bool(generic_collection and _entity_title_alignment(claim, source.title) < 0.45)
+
+
 def _rank_claim_sources(
     claim: str,
     evidence: list[EvidenceSource],
@@ -121,18 +161,24 @@ def _rank_claim_sources(
     minimum_score: float,
 ) -> list[tuple[float, EvidenceSource]]:
     """Rank candidates by claim match, source quality, and domain diversity."""
-    ranked = sorted(
-        (
-            (
-                _evidence_match(claim, source) * (0.75 + 0.25 * source.credibility)
-                + 0.25 * _entity_title_alignment(claim, source.title),
-                source,
-            )
-            for source in evidence
-        ),
-        key=lambda item: item[0],
-        reverse=True,
-    )
+    ranked: list[tuple[float, EvidenceSource]] = []
+    for source in evidence:
+        source_text = f"{source.title} {source.snippet}"
+        entity_alignment = _entity_text_alignment(claim, source_text)
+        if _is_indirect_collection_source(claim, source):
+            continue
+        # For a named subject, avoid allowing an unrelated page with a few
+        # generic words in common to become the claim's only evidence. Pronoun
+        # and list-item claims have no extractable subject and remain eligible.
+        if _claim_subject(claim) and entity_alignment < 0.67:
+            continue
+        score = (
+            _evidence_match(claim, source) * (0.75 + 0.25 * source.credibility)
+            + 0.25 * _entity_title_alignment(claim, source.title)
+            + 0.10 * entity_alignment
+        )
+        ranked.append((score, source))
+    ranked.sort(key=lambda item: item[0], reverse=True)
     selected: list[tuple[float, EvidenceSource]] = []
     seen_hosts: set[str] = set()
     for score, source in ranked:
@@ -222,6 +268,94 @@ def _collapses_disputed_report_into_fact(claim: str, evidence: list[EvidenceSour
     )
 
 
+_MONTHS = {
+    "january": "01", "february": "02", "march": "03", "april": "04",
+    "may": "05", "june": "06", "july": "07", "august": "08",
+    "september": "09", "october": "10", "november": "11", "december": "12",
+}
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    "twenty": 20,
+}
+
+
+def _date_signatures(text: str) -> set[str]:
+    """Normalize written and ISO dates so harmless formatting does not mislead NLI."""
+    normalized = _normalize(text)
+    signatures = {
+        f"{year}-{month}-{day}"
+        for year, month, day in re.findall(r"\b((?:1[5-9]|20)\d{2})[-/](\d{1,2})[-/](\d{1,2})\b", normalized)
+    }
+    for day, month_name, year in re.findall(
+        r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(" + "|".join(_MONTHS) + r")\s+((?:1[5-9]|20)\d{2})\b",
+        normalized,
+    ):
+        signatures.add(f"{year}-{_MONTHS[month_name]}-{int(day):02d}")
+    for month_name, day, year in re.findall(
+        r"\b(" + "|".join(_MONTHS) + r")\s+(\d{1,2})(?:st|nd|rd|th)?[,]?\s+((?:1[5-9]|20)\d{2})\b",
+        normalized,
+    ):
+        signatures.add(f"{year}-{_MONTHS[month_name]}-{int(day):02d}")
+    return signatures
+
+
+def _has_direct_date_support(claim: str, evidence: list[EvidenceSource]) -> bool:
+    """Accept an exact, entity-aligned date before an NLI outlier can reject it."""
+    claim_dates = _date_signatures(claim)
+    if not claim_dates:
+        return False
+
+    claim_terms = {
+        token for token in re.findall(r"[a-z0-9]+", _normalize(claim))
+        if len(token) > 2 and token not in _MONTHS and not token.isdigit()
+    }
+    for source in evidence:
+        entity_alignment = _entity_text_alignment(claim, f"{source.title} {source.snippet}")
+        for sentence in re.split(r"(?<=[.!?;])\s+", source.snippet):
+            if not (claim_dates & _date_signatures(sentence)):
+                continue
+            sentence_terms = set(re.findall(r"[a-z0-9]+", _normalize(sentence)))
+            overlap = len(claim_terms & sentence_terms) / len(claim_terms) if claim_terms else 0.0
+            if entity_alignment >= 0.67 or overlap >= 0.65:
+                return True
+    return False
+
+
+def _document_section_count_support(claim: str, evidence: list[EvidenceSource]) -> float:
+    """Verify section counts from the structure of an uploaded document.
+
+    PDF extraction often preserves headings but not a sentence literally saying
+    "this syllabus contains ten sections". Counting explicit section labels is
+    safer than asking an NLI model to infer a document's structure.
+    """
+    match = re.search(
+        r"\b(?:syllabus|document|file)?\s*(?:contains|has|includes|comprises)\s+"
+        r"(\d+|" + "|".join(_NUMBER_WORDS) + r")\s+sections?\b",
+        _normalize(claim),
+    )
+    if not match:
+        return 0.0
+    raw_count = match.group(1)
+    expected = int(raw_count) if raw_count.isdigit() else _NUMBER_WORDS[raw_count]
+    document_text = " ".join(
+        _normalize(source.snippet)
+        for source in evidence
+        if source.url.startswith("document://")
+    )
+    if not document_text:
+        return 0.0
+    if re.search(
+        rf"\b(?:contains|has|includes|comprises)\s+(?:{expected}|{raw_count})\s+sections?\b",
+        document_text,
+    ):
+        return 0.94
+    labels = {int(label) for label in re.findall(r"\bsection\s+(\d{1,2})\b", document_text)}
+    return 0.90 if set(range(1, expected + 1)) <= labels else 0.0
+
+
 def _has_conflicting_year_evidence(claim: str, evidence: list[EvidenceSource]) -> bool:
     """Catch a different year asserted for the same well-matched event.
 
@@ -231,6 +365,11 @@ def _has_conflicting_year_evidence(claim: str, evidence: list[EvidenceSource]) -
     a different four-digit year.  It avoids penalising an article that merely
     contains several unrelated dates.
     """
+    # An exact date match is stronger evidence than a differently formatted
+    # year appearing elsewhere in the same biography.
+    if _has_direct_date_support(claim, evidence):
+        return False
+
     claim_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(claim)))
     if not claim_years:
         return False
@@ -244,6 +383,7 @@ def _has_conflicting_year_evidence(claim: str, evidence: list[EvidenceSource]) -
         return False
 
     for source in evidence:
+        entity_alignment = _entity_text_alignment(claim, f"{source.title} {source.snippet}")
         sentences = re.split(r"(?<=[.!?;])\s+", source.snippet)
         for sentence in sentences:
             sentence_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(sentence)))
@@ -253,7 +393,9 @@ def _has_conflicting_year_evidence(claim: str, evidence: list[EvidenceSource]) -
                 token for token in re.findall(r"[a-z0-9]+", _normalize(sentence)) if len(token) > 2
             }
             overlap = len(claim_terms & sentence_terms) / len(claim_terms)
-            if overlap >= 0.55:
+            # A different date must be attached to the same entity and event,
+            # not merely appear on a loosely related timeline or list page.
+            if entity_alignment >= 0.67 and overlap >= 0.55:
                 return True
     return False
 
@@ -330,6 +472,10 @@ def _claim_evidence(
     ranked = _rank_claim_sources(claim, evidence, limit=limit, minimum_score=0.18)
     if ranked:
         return [source for _score, source in ranked]
+    # A named factual claim should not fall back to an arbitrary global page:
+    # no evidence is safer and more honest than a tangential contradiction.
+    if _claim_subject(claim):
+        return []
     fallback = sorted(
         ((_evidence_match(claim, source), source) for source in evidence),
         key=lambda item: item[0],
@@ -425,6 +571,21 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
     if not evidence:
         return "unsupported", 0.0, "No evidence source was available for this claim.", 0.0
 
+    document_section_support = _document_section_count_support(claim, evidence)
+    if document_section_support:
+        return (
+            "supported",
+            document_section_support,
+            "The uploaded document's explicit section headings support this count.",
+            0.88,
+        )
+    if _has_direct_date_support(claim, evidence):
+        return (
+            "supported",
+            0.95,
+            "Retrieved evidence directly matches the date and subject in this claim.",
+            0.88,
+        )
     if _collapses_disputed_report_into_fact(claim, evidence):
         return (
             "unsupported",
@@ -478,6 +639,26 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
                 "supported",
                 confidence,
                 "Retrieved evidence directly matches the factual content of this claim.",
+                agreement,
+            )
+        direct_single_source = any(
+            _entity_text_alignment(claim, f"{source.title} {source.snippet}") >= 0.90
+            and _evidence_match(claim, source) >= 0.45
+            for source in evidence
+        )
+        high_quality_direct_source = any(
+            source.credibility >= 0.84 and _evidence_match(claim, source) >= 0.55
+            for source in evidence
+        )
+        # A lone NLI contradiction is useful only when the cited source is
+        # clearly about the same claim. Otherwise it remains a review item,
+        # preventing weak or tangential pages from falsely labelling an answer
+        # as hallucinated.
+        if contradiction_votes == 1 and not (direct_single_source or high_quality_direct_source):
+            return (
+                "uncertain",
+                best_contradiction,
+                "The retrieved source is too indirect to establish a contradiction for this claim.",
                 agreement,
             )
         return "unsupported", best_contradiction, "An NLI model found the claim contradicted by retrieved evidence.", agreement

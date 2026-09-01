@@ -16,6 +16,15 @@ PROVIDER_LABELS = {
     LLMProvider.COMPARE: "Compare configured models",
 }
 
+CORRECTION_INSTRUCTION = (
+    "Write a short evidence-grounded replacement answer to the user's question. Use only facts that are "
+    "directly and unambiguously stated in the supplied evidence; do not add background details, timelines, "
+    "or inferences. Answer the exact requested subject and category, especially for a list request: never "
+    "substitute related people, organisations, or locations for the requested items. Use no more than three "
+    "short sentences, except for an explicitly requested list. If the evidence cannot support an answer, say so "
+    "plainly. Do not mention the correction process, evidence, or citations."
+)
+
 
 def provider_info(settings: Settings) -> list[ProviderInfo]:
     # The public product selector deliberately exposes only Gemini, Groq, and
@@ -111,9 +120,9 @@ async def generate_correction(
     raise ValueError(f"Unsupported provider: {provider.value}")
 
 
-def _evidence_block(evidence: list[EvidenceSource]) -> str:
+def _evidence_block(evidence: list[EvidenceSource], *, limit: int = 5) -> str:
     return "\n".join(
-        f"- {source.title}: {source.snippet}" for source in evidence[:5]
+        f"- {source.title}: {source.snippet}" for source in evidence[:limit]
     ) or "No evidence was retrieved."
 
 
@@ -203,14 +212,10 @@ async def _generate_with_openai_compatible(
     if not api_key:
         raise ValueError("This provider has not been configured on the server.")
 
-    evidence_block = _evidence_block(evidence)
+    evidence_block = _evidence_block(evidence, limit=3 if correction else 5)
 
     instruction = (
-        "Write a concise corrected answer to the user's question. Use only the supplied evidence; "
-        "do not add facts from general knowledge. Answer the exact requested subject and category, especially "
-        "for a list request: never substitute related people, organisations, or locations for the requested items. "
-        "If the evidence cannot support an answer, say so plainly. Do not mention the correction process, "
-        "evidence, or citations."
+        CORRECTION_INSTRUCTION
         if correction
         else (
             "You are a concise, factual assistant. Answer the user's latest question "
@@ -285,11 +290,7 @@ async def _generate_with_gemini(
         raise ValueError("This provider has not been configured on the server.")
 
     instruction = (
-        "Write a concise corrected answer to the user's question. Use only the supplied evidence; "
-        "do not add facts from general knowledge. Answer the exact requested subject and category, especially "
-        "for a list request: never substitute related people, organisations, or locations for the requested items. "
-        "If the evidence cannot support an answer, say so plainly. Do not mention the correction process, "
-        "evidence, or citations."
+        CORRECTION_INSTRUCTION
         if correction
         else (
             "You are a concise, factual assistant. Answer the user's question directly using "
@@ -313,7 +314,7 @@ async def _generate_with_gemini(
     )
     prompt = (
         f"{instruction}\n\nConversation so far:\n{_history_block(history)}\n\n"
-        f"Latest question: {question}\n\nEvidence context:\n{_evidence_block(evidence)}"
+        f"Latest question: {question}\n\nEvidence context:\n{_evidence_block(evidence, limit=3 if correction else 5)}"
     )
     # Gemini can be slower than the OpenAI-compatible providers. Give it a
     # modestly longer response window, but do not silently retry a generation

@@ -339,6 +339,100 @@ def test_conflicting_year_for_the_same_event_is_unsupported() -> None:
     assert "different year" in rationale
 
 
+def test_exact_date_support_overrides_an_nli_outlier_for_any_named_subject(monkeypatch) -> None:
+    class FalseContradictionModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.95, 0.03, 0.02]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: FalseContradictionModel())
+    evidence = [
+        EvidenceSource(
+            title="Subhas Chandra Bose",
+            url="https://example.com/subhas-bose",
+            snippet="Subhas Chandra Bose died from burns on 18 August 1945 after an aircraft crash.",
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "Subhash Chandra Bose died on 18 August 1945.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.95
+    assert "date and subject" in rationale
+
+
+def test_generic_collection_page_is_not_used_as_a_biography_citation() -> None:
+    claim = "Subhas Chandra Bose was forced to land after departing Saigon."
+    generic_list = EvidenceSource(
+        title="List of aircraft hijackings",
+        url="https://example.com/aircraft-list",
+        snippet="Aircraft incidents have occurred in many countries.",
+    )
+    direct_profile = EvidenceSource(
+        title="Death of Subhas Chandra Bose",
+        url="https://example.com/subhas-death",
+        snippet="Subhas Chandra Bose's aircraft departed from Saigon and crashed near Taihoku.",
+    )
+
+    assert select_claim_citations(claim, [generic_list, direct_profile]) == [direct_profile]
+
+
+def test_indirect_single_source_contradiction_is_kept_for_review(monkeypatch) -> None:
+    class ContradictionModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.90, 0.05, 0.05]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: ContradictionModel())
+    evidence = [
+        EvidenceSource(
+            title="Computing history overview",
+            url="https://example.com/computing-history",
+            snippet="Computer science has a long history with many influential people.",
+        )
+    ]
+
+    status, _confidence, rationale, _agreement = verifier._nli_verdict(
+        "Ada Lovelace wrote the first computer algorithm.", evidence
+    )
+
+    assert status == "uncertain"
+    assert "too indirect" in rationale
+
+
+def test_uploaded_document_section_labels_support_a_section_count() -> None:
+    headings = " ".join(f"Section {index}: Topic {index}." for index in range(1, 11))
+    evidence = [
+        EvidenceSource(
+            title="syllabus.pdf",
+            url="document://syllabus",
+            snippet=headings,
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "The syllabus contains ten sections in total.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.90
+    assert "section headings" in rationale
+
+
 def test_reliability_rewards_credible_and_independent_evidence() -> None:
     high_quality = ClaimAssessment(
         claim="Python was created by Guido van Rossum.",
