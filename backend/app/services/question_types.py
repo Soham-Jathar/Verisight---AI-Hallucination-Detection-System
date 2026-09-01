@@ -27,6 +27,7 @@ class RequestKind(str, Enum):
     FACTUAL = "factual"
     MATH = "math"
     RECOMMENDATION = "recommendation"
+    CONTEXT_REQUIRED = "context_required"
 
 
 @dataclass(frozen=True)
@@ -182,6 +183,8 @@ def _topic_from_question(question: str) -> str | None:
         r"^\s*who\s+(?:created|invented|designed|founded)\s+(.+?)(?=\s+(?:and|with|including)\b|$)",
         r"^\s*(?:tell me|give me information|explain)\s+(?:about\s+)?(.+?)(?=\s+(?:and|with|including)\b|$)",
         r"^\s*what\s+is\s+(.+?)(?=\s+(?:and|with|including)\b|$)",
+        r"^\s*what\s+(?:are|is)\s+(?:the\s+)?(?:achievements?|awards?|career|biography|history|life|uses|details)\s+(?:of|for)\s+(.+?)$",
+        r"^\s*(?:when|where)\s+(?:was|did)\s+(.+?)\s+(?:born|die|died|study|work|live)\b",
     )
     for pattern in patterns:
         match = re.match(pattern, cleaned, flags=re.IGNORECASE)
@@ -189,6 +192,11 @@ def _topic_from_question(question: str) -> str | None:
             topic = match.group(1).strip(" ,")
             if len(topic) >= 2:
                 return topic
+    # A user can make a compact subject-only request (for example, "Marie
+    # Curie") and then ask to elaborate. Preserve the named topic instead of
+    # searching the phrase "elaborate" as though it were a title.
+    if re.fullmatch(r"[A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){0,4}", cleaned):
+        return cleaned
     return None
 
 
@@ -217,13 +225,17 @@ def _recent_answered_person(history) -> str | None:
 
 
 _MORE_INFORMATION_FOLLOW_UP = (
+    r"(?:(?:can|could|would)\s+you\s+|please\s+)?"
     r"(?:"
-    r"(?:tell me|explain|elaborate)(?:\s+(?:more|further|in detail))?"
-    r"|give(?:\s+me)?\s+(?:more\s+)?(?:information|details)"
-    r"|more details"
-    r"|more information"
+    r"(?:tell me|explain|elaborate|expand|describe|continue)"
+    r"(?:\s+(?:more|further|in detail|with details|on (?:this|that|it)|about (?:this|that|it)))?"
+    r"|(?:give|provide|share)(?:\s+me)?\s+(?:(?:more|further|additional)\s+)?"
+    r"(?:information|details|context|background)"
+    r"|(?:go|dig)\s+(?:deeper|further)"
+    r"|(?:more|further|additional)\s+(?:details|information|context|background)"
+    r"|more\s+(?:on|about)\s+(?:this|that|it)"
     r"|what about (?:him|her|it|that|this)"
-    r")"
+    r")(?:\s+please)?"
 )
 _ALTERNATIVE_FOLLOW_UP = re.compile(
     r"^\s*(?:give|list|show|suggest|recommend)\s+(?:me\s+)?(?:an?\s+|some\s+)?"
@@ -327,6 +339,11 @@ def resolve_contextual_question(question: str, history) -> str:
 def route_request(question: str, history) -> RoutedRequest:
     """Select one consistent generation/verification path for the complete request."""
     resolved = resolve_contextual_question(question, history)
+    # Do not search the web for an isolated "Tell me more". Without the
+    # preceding conversation it can be mistaken for a book, programme, or
+    # product literally named "Tell Me More".
+    if _looks_like_general_follow_up(question) and resolved == question:
+        return RoutedRequest(question=resolved, kind=RequestKind.CONTEXT_REQUIRED)
     if is_math_question(resolved):
         return RoutedRequest(question=resolved, kind=RequestKind.MATH)
     if _looks_like_recommendation(resolved):

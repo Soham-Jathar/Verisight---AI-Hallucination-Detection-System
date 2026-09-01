@@ -165,6 +165,42 @@ def test_general_follow_up_accepts_give_more_information_wording() -> None:
     assert resolve_contextual_question("Give more information", history) == "Provide more information about Python programming."
 
 
+def test_vague_follow_up_without_history_requires_a_topic() -> None:
+    routed = route_request("Tell me more", [])
+
+    assert routed.kind == RequestKind.CONTEXT_REQUIRED
+
+
+def test_achievement_question_supplies_the_topic_for_more_information() -> None:
+    history = [ChatMessage(role="user", content="What are the achievements of Marie Curie?")]
+
+    assert resolve_contextual_question("Tell me more", history) == "Provide more information about Marie Curie."
+
+
+def test_bare_named_topic_supplies_context_for_elaboration() -> None:
+    history = [ChatMessage(role="user", content="Marie Curie")]
+
+    assert resolve_contextual_question("Elaborate", history) == "Provide more information about Marie Curie."
+
+
+@pytest.mark.parametrize(
+    "follow_up",
+    [
+        "Explain further",
+        "Expand on this",
+        "Could you provide more details?",
+        "Share additional context",
+        "Go deeper",
+        "Continue please",
+        "More about it",
+    ],
+)
+def test_follow_up_synonyms_keep_the_previous_topic(follow_up: str) -> None:
+    history = [ChatMessage(role="user", content="What are the achievements of Marie Curie?")]
+
+    assert resolve_contextual_question(follow_up, history) == "Provide more information about Marie Curie."
+
+
 def test_list_names_follow_up_keeps_the_original_list_subject() -> None:
     history = [
         ChatMessage(role="user", content="List the papers for GATE 2027"),

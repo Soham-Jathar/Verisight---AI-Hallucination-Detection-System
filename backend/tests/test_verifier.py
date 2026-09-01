@@ -433,6 +433,68 @@ def test_uploaded_document_section_labels_support_a_section_count() -> None:
     assert "section headings" in rationale
 
 
+def test_negated_year_claim_is_supported_by_the_true_year() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Albert Einstein",
+            url="https://example.com/einstein",
+            snippet="Albert Einstein was born on 14 March 1879 in Ulm.",
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "No, Albert Einstein was not born in 1889.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.93
+    assert "negated claim" in rationale
+
+
+def test_same_year_direct_evidence_prevents_a_false_year_conflict() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Marie Curie",
+            url="https://example.com/curie",
+            snippet="Marie Curie became the first female professor at the University of Paris in 1906.",
+        ),
+        EvidenceSource(
+            title="Curie timeline",
+            url="https://example.net/curie",
+            snippet="Marie Curie's later research was recognized in 1911.",
+        ),
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "Marie Curie became the first female professor at the University of Paris in 1906.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.92
+    assert "year, subject, and event" in rationale
+
+
+def test_vague_reference_sentence_is_not_verified_against_an_unrelated_entity() -> None:
+    answer = (
+        "James Gosling designed the Java programming language. "
+        "The technology was developed at a software company."
+    )
+
+    assert extract_claims(answer) == ["James Gosling designed the Java programming language."]
+
+
+def test_person_pronouns_are_resolved_after_a_wider_range_of_factual_verbs() -> None:
+    answer = (
+        "Marie Curie shared the 1903 Nobel Prize in Physics. "
+        "She became the first female professor at the University of Paris in 1906."
+    )
+
+    assert extract_claims(answer) == [
+        "Marie Curie shared the 1903 Nobel Prize in Physics.",
+        "Marie Curie became the first female professor at the University of Paris in 1906.",
+    ]
+
+
 def test_reliability_rewards_credible_and_independent_evidence() -> None:
     high_quality = ClaimAssessment(
         claim="Python was created by Guido van Rossum.",

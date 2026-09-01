@@ -52,6 +52,13 @@ PROFILE_TITLE_CONTEXT_TERMS = {
     "national", "official", "profile", "space", "the", "tribute",
 }
 
+# Community answer pages can be helpful for discovery, but they are not stable
+# enough to display as factual verification evidence when encyclopaedic,
+# official, academic, or reputable sources are available.
+LOW_TRUST_ANSWER_HOSTS = {
+    "brainly.com", "coursehero.com", "quora.com", "studocu.com",
+}
+
 # The keyword normalizer can remove a trailing plural-like ``s``. Keep this
 # tolerance limited to identity-title matching so ``Subhas``, ``Subhash``,
 # and the common typed variant ``Shubhash`` can resolve to the same historical
@@ -370,13 +377,14 @@ def _select_diverse_sources(
 
 
 def _is_citable_url(url: str) -> bool:
-    """Do not present search-engine redirect pages as evidence citations."""
+    """Keep redirects and low-trust answer pages out of verification citations."""
     parsed = urlparse(url)
     host = parsed.netloc.lower()
     return (
         parsed.scheme in {"http", "https"}
         and bool(host)
         and not host.endswith("duckduckgo.com")
+        and not any(host == blocked or host.endswith(f".{blocked}") for blocked in LOW_TRUST_ANSWER_HOSTS)
     )
 
 

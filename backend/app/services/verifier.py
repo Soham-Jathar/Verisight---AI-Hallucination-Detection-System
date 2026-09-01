@@ -87,7 +87,11 @@ def _claim_subject(claim: str) -> str:
         claim,
         flags=re.IGNORECASE,
     )
-    return match.group(1).strip() if match else ""
+    if not match:
+        return ""
+    # Answers to yes/no questions often begin with "No,". It is not part of
+    # the entity and must not weaken entity alignment for the actual subject.
+    return re.sub(r"^(?:no|yes)[,\s]+", "", match.group(1).strip(), flags=re.IGNORECASE)
 
 
 def _entity_title_alignment(claim: str, title: str) -> float:
@@ -324,6 +328,61 @@ def _has_direct_date_support(claim: str, evidence: list[EvidenceSource]) -> bool
     return False
 
 
+def _has_direct_year_support(claim: str, evidence: list[EvidenceSource]) -> bool:
+    """Recognise an exact, entity-aligned year for the same factual event."""
+    claim_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(claim)))
+    if not claim_years:
+        return False
+    ignored = claim_years | {"the", "was", "were", "is", "are", "and", "for", "with"}
+    claim_terms = {
+        token for token in re.findall(r"[a-z0-9]+", _normalize(claim))
+        if len(token) > 2 and token not in ignored
+    }
+    for source in evidence:
+        entity_alignment = _entity_text_alignment(claim, f"{source.title} {source.snippet}")
+        if entity_alignment < 0.67:
+            continue
+        for sentence in re.split(r"(?<=[.!?;])\s+", source.snippet):
+            sentence_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(sentence)))
+            if not (claim_years & sentence_years):
+                continue
+            sentence_terms = set(re.findall(r"[a-z0-9]+", _normalize(sentence)))
+            overlap = len(claim_terms & sentence_terms) / len(claim_terms) if claim_terms else 0.0
+            if overlap >= 0.55:
+                return True
+    return False
+
+
+def _has_negative_year_fact_support(claim: str, evidence: list[EvidenceSource]) -> bool:
+    """Support claims such as 'Einstein was not born in 1889' from the true year.
+
+    A different source year contradicts a positive claim, but it *supports* a
+    negated year claim. Treating both forms identically was the reason valid
+    false-premise answers could receive an unsupported verdict.
+    """
+    normalized_claim = _normalize(claim)
+    claim_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", normalized_claim))
+    if not claim_years or not re.search(r"\b(?:not|never)\b", normalized_claim):
+        return False
+    claim_terms = {
+        token for token in re.findall(r"[a-z0-9]+", normalized_claim)
+        if len(token) > 2 and token not in claim_years | {"not", "never"}
+    }
+    for source in evidence:
+        entity_alignment = _entity_text_alignment(claim, f"{source.title} {source.snippet}")
+        if entity_alignment < 0.67:
+            continue
+        for sentence in re.split(r"(?<=[.!?;])\s+", source.snippet):
+            sentence_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(sentence)))
+            if not sentence_years or sentence_years & claim_years:
+                continue
+            sentence_terms = set(re.findall(r"[a-z0-9]+", _normalize(sentence)))
+            overlap = len(claim_terms & sentence_terms) / len(claim_terms) if claim_terms else 0.0
+            if overlap >= 0.55:
+                return True
+    return False
+
+
 def _document_section_count_support(claim: str, evidence: list[EvidenceSource]) -> float:
     """Verify section counts from the structure of an uploaded document.
 
@@ -367,7 +426,11 @@ def _has_conflicting_year_evidence(claim: str, evidence: list[EvidenceSource]) -
     """
     # An exact date match is stronger evidence than a differently formatted
     # year appearing elsewhere in the same biography.
-    if _has_direct_date_support(claim, evidence):
+    if (
+        _has_direct_date_support(claim, evidence)
+        or _has_direct_year_support(claim, evidence)
+        or _has_negative_year_fact_support(claim, evidence)
+    ):
         return False
 
     claim_years = set(re.findall(r"\b(?:1[5-9]\d{2}|20\d{2})\b", _normalize(claim)))
@@ -584,6 +647,20 @@ def _nli_verdict(claim: str, evidence: list[EvidenceSource]) -> tuple[str, float
             "supported",
             0.95,
             "Retrieved evidence directly matches the date and subject in this claim.",
+            0.88,
+        )
+    if _has_negative_year_fact_support(claim, evidence):
+        return (
+            "supported",
+            0.93,
+            "Retrieved evidence gives a different year, which supports this negated claim.",
+            0.88,
+        )
+    if _has_direct_year_support(claim, evidence):
+        return (
+            "supported",
+            0.92,
+            "Retrieved evidence directly matches the year, subject, and event in this claim.",
             0.88,
         )
     if _collapses_disputed_report_into_fact(claim, evidence):
@@ -805,6 +882,24 @@ def _is_conversational_sentence(sentence: str) -> bool:
     return any(re.match(pattern, normalized, flags=re.IGNORECASE) for pattern in patterns)
 
 
+def _is_unresolved_reference_claim(claim: str) -> bool:
+    """Skip vague follow-on sentences that cannot be independently checked.
+
+    A sentence such as "The technology was developed at a company" loses the
+    actual product name. Searching it can therefore cite any page containing
+    the generic words "technology" and "company". The generator is also told
+    to repeat the entity, but this guard keeps one vague sentence from
+    contaminating a whole answer's reliability score.
+    """
+    generic_subjects = {
+        "the technology", "the company", "the organization", "the organisation",
+        "the project", "the language", "the institution", "the team", "the mission",
+        "this technology", "this company", "this project", "this language",
+        "it", "they", "this", "that",
+    }
+    return _normalize(_claim_subject(claim)) in generic_subjects
+
+
 def _is_direct_answer_fragment(answer: str, question: str) -> bool:
     """Allow a short factual answer when its question supplies the relation.
 
@@ -864,7 +959,8 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
     last_person: str | None = None
     person_subject = re.compile(
         r"^([A-Z][A-Za-z.'-]*(?:\s+(?:[A-Z][A-Za-z.'-]*|van|von|de|da|del)){1,4})\s+"
-        r"(?:is|was|created|developed|released|designed|founded|led|served|became|worked)\b"
+        r"(?:is|was|created|developed|released|designed|founded|led|served|became|worked|"
+        r"shared|received|coined|isolated|organized|organised|won|died|passed)\b"
     )
     for sentence in sentences:
         cleaned = boilerplate.sub("", sentence).strip()
@@ -879,6 +975,8 @@ def extract_claims(answer: str, question: str = "", *, limit: int = 6) -> list[s
                 continue
             if last_person and re.match(r"^(?:he|she)\b", claim, flags=re.IGNORECASE):
                 claim = re.sub(r"^(?:he|she)\b", last_person, claim, flags=re.IGNORECASE)
+            if _is_unresolved_reference_claim(claim):
+                continue
             if len(claim) < 20:
                 continue
             match = person_subject.match(claim)

@@ -104,6 +104,16 @@ async def _expand_unresolved_claim_evidence(
 
 async def run_analysis(request: AnalyzeRequest, *, settings: Settings) -> AnalyzeResponse:
     routed_request = route_request(request.question, request.history)
+    if routed_request.kind == RequestKind.CONTEXT_REQUIRED:
+        return AnalyzeResponse(
+            question=request.question,
+            mode=request.mode,
+            provider=request.provider,
+            stage="complete",
+            message="This follow-up needs the preceding conversation to identify its topic.",
+            answer="Please specify the topic you would like to know more about.",
+            model="context-resolver",
+        )
     analysis_question = routed_request.question
     recommendation_request = routed_request.kind == RequestKind.RECOMMENDATION
     math_question = routed_request.kind == RequestKind.MATH

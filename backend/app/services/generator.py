@@ -226,6 +226,8 @@ async def _generate_with_openai_compatible(
             "Do not start with phrases such as 'Based on the provided evidence'. "
             "Use short sentences with one independently verifiable fact per sentence; "
             "do not combine a role, date, achievement, and event into one sentence. "
+            "Repeat the actual entity name in each factual sentence; never use vague subjects such as "
+            "'the technology', 'the company', 'it', or 'they'. "
             "Do not claim that a list is complete unless the supplied information explicitly establishes that. "
             "For factual answers that are not recommendations, provide no more than six independently "
             "verifiable sentences. If the user asks for more, provide the six most useful facts and say it is a selection. "
@@ -299,7 +301,8 @@ async def _generate_with_gemini(
             + _document_grounding_instruction(evidence)
             + "Do not start with phrases such as 'Based on the provided evidence'. Use short sentences with one independently "
             "verifiable fact per sentence; do not combine a role, date, achievement, and event "
-            "into one sentence. Do not claim that a list is complete unless the supplied information "
+            "into one sentence. Repeat the actual entity name in each factual sentence; never use vague subjects such as "
+            "'the technology', 'the company', 'it', or 'they'. Do not claim that a list is complete unless the supplied information "
             "explicitly establishes that. For factual answers that are not recommendations, provide no more than six "
             "independently verifiable sentences. If the user asks for more, provide the six most useful facts and say "
             "it is a selection. "

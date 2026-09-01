@@ -2,6 +2,7 @@ from app.schemas import EvidenceSource
 from app.services.retrieval import (
     _split_compound_question,
     _has_topic_anchor,
+    _is_citable_url,
     _is_unrelated_identity_page,
     _keywords,
     _relation_parts,
@@ -144,3 +145,9 @@ def test_same_title_from_independent_domains_is_not_merged() -> None:
     )
 
     assert _source_merge_key(official) != _source_merge_key(encyclopedia)
+
+
+def test_low_trust_community_answer_pages_are_not_citations() -> None:
+    assert not _is_citable_url("https://www.quora.com/What-if-Albert-Einstein")
+    assert not _is_citable_url("https://brainly.com/question/123")
+    assert _is_citable_url("https://www.britannica.com/biography/Albert-Einstein")
