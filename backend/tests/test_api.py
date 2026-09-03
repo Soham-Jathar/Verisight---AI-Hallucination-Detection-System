@@ -2,6 +2,7 @@ import pytest
 import httpx
 from fastapi.testclient import TestClient
 
+from app.config import Settings
 from app.main import app
 from app.schemas import ClaimAssessment, EvidenceSource
 from app.services.pipeline import _claims_needing_focused_evidence, _merge_evidence
@@ -17,6 +18,12 @@ def test_health_endpoint(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_default_groq_model_is_not_retired() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.groq_model == "openai/gpt-oss-120b"
 
 
 def test_root_endpoint(client: TestClient) -> None:

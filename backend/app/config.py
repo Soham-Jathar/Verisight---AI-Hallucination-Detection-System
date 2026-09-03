@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_request_timeout_seconds: float = 45.0
     groq_api_key: str | None = None
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Groq retired llama-3.3-70b-versatile for developer/free accounts in
+    # August 2026. Use its recommended production replacement by default.
+    groq_model: str = "openai/gpt-oss-120b"
     openrouter_api_key: str | None = None
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
     tavily_api_key: str | None = None
