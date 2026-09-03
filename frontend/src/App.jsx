@@ -251,22 +251,43 @@ function App() {
   const recognitionRef = useRef(null)
 
   useEffect(() => {
+    let cancelled = false
+
     async function loadSetup() {
-      try {
-        const [healthResponse, providersResponse] = await Promise.all([fetch(`${API_URL}/health`), fetch(`${API_URL}/api/providers`)])
-        if (!healthResponse.ok || !providersResponse.ok) throw new Error('Unavailable')
-        const providerData = await providersResponse.json()
-        const visibleProviders = providerData.filter((item) => visibleProviderIds.has(item.id))
-        setProviders(visibleProviders)
-        const firstConfigured = visibleProviders.find((item) => item.id === 'gemini' && item.configured)
-          ?? visibleProviders.find((item) => item.id === 'groq' && item.configured)
-          ?? visibleProviders.find((item) => item.id === 'compare' && item.configured)
-        if (firstConfigured) setProvider(firstConfigured.id)
-        setApiStatus('online')
-      } catch { setApiStatus('offline') }
+      // Render's free web services can take time to wake after inactivity. A
+      // one-off check would leave the UI falsely marked offline even though
+      // the API becomes available seconds later.
+      const retryDelays = [0, 3000, 6000, 9000, 12000, 15000]
+
+      for (const delay of retryDelays) {
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
+        if (cancelled) return
+
+        try {
+          const [healthResponse, providersResponse] = await Promise.all([fetch(`${API_URL}/health`), fetch(`${API_URL}/api/providers`)])
+          if (!healthResponse.ok || !providersResponse.ok) throw new Error('Unavailable')
+          const providerData = await providersResponse.json()
+          const visibleProviders = providerData.filter((item) => visibleProviderIds.has(item.id))
+          if (cancelled) return
+          setProviders(visibleProviders)
+          const firstConfigured = visibleProviders.find((item) => item.id === 'gemini' && item.configured)
+            ?? visibleProviders.find((item) => item.id === 'groq' && item.configured)
+            ?? visibleProviders.find((item) => item.id === 'compare' && item.configured)
+          if (firstConfigured) setProvider(firstConfigured.id)
+          setApiStatus('online')
+          return
+        } catch {
+          // Try again while the free backend is starting.
+        }
+      }
+
+      if (!cancelled) setApiStatus('offline')
     }
     loadSetup()
-    return () => recognitionRef.current?.stop()
+    return () => {
+      cancelled = true
+      recognitionRef.current?.stop()
+    }
   }, [])
 
   useEffect(() => {
