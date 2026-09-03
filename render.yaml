@@ -10,3 +10,18 @@ services:
     envVars:
       - key: EVALUATION_DASHBOARD_ENABLED
         value: "false"
+
+  - type: web
+    name: verisight-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: VITE_API_URL
+        value: "https://verisight-api.onrender.com"
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
