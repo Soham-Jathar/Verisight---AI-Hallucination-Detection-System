@@ -1,0 +1,529 @@
+from types import SimpleNamespace
+
+from app.services import verifier
+from app.services.verifier import (
+    _claim_evidence_excerpt,
+    _option_pair_support,
+    extract_claims,
+    limit_factual_answer,
+    reliability_score,
+    select_claim_citations,
+    select_citations,
+    select_verification_sources,
+    verify_claims,
+)
+from app.schemas import ClaimAssessment, EvidenceSource
+
+
+def test_extract_claims_splits_sentences() -> None:
+    answer = "Python was created by Guido van Rossum. It first appeared in 1991."
+    claims = extract_claims(answer)
+    assert len(claims) == 2
+
+
+def test_factual_answer_is_trimmed_to_the_verifiable_claim_limit() -> None:
+    answer = " ".join(
+        [
+            "The first factual statement contains enough detail to verify.",
+            "The second factual statement contains enough detail to verify.",
+            "The third factual statement contains enough detail to verify.",
+            "The fourth factual statement contains enough detail to verify.",
+            "The fifth factual statement contains enough detail to verify.",
+            "The sixth factual statement contains enough detail to verify.",
+            "The seventh factual statement must not be displayed unverified.",
+        ]
+    )
+
+    limited = limit_factual_answer(answer)
+
+    assert "seventh factual statement" not in limited
+    assert limited.count("statement contains enough detail") == 6
+
+
+def test_extract_claims_splits_explicit_pronoun_clause() -> None:
+    answer = "Bjarne Stroustrup created C++, and he developed it at Bell Labs."
+    claims = extract_claims(answer)
+    assert claims == [
+        "Bjarne Stroustrup created C++",
+        "Bjarne Stroustrup developed it at Bell Labs.",
+    ]
+
+
+def test_extract_claims_keeps_initialisms_in_one_claim() -> None:
+    claims = extract_claims(
+        "Jon Bernthal earned an M.F.A. from Harvard University's Institute for Advanced Theatre Training."
+    )
+    assert claims == [
+        "Jon Bernthal earned an M.F.A. from Harvard University's Institute for Advanced Theatre Training."
+    ]
+
+
+def test_extract_claims_ignores_evidence_refusal_sentence() -> None:
+    answer = (
+        "C. K. Nayudu was the first Test captain of India. "
+        "The supplied information does not name all the players in that team."
+    )
+    assert extract_claims(answer) == ["C. K. Nayudu was the first Test captain of India."]
+
+
+def test_extract_claims_ignores_conversational_only_reply() -> None:
+    assert extract_claims("You're welcome. Anything else I can help with?") == []
+
+
+def test_extract_claims_keeps_fact_after_conversational_sentence() -> None:
+    assert extract_claims("Of course. Guido van Rossum created Python.") == [
+        "Guido van Rossum created Python."
+    ]
+
+
+def test_extract_claims_keeps_a_short_direct_answer_when_question_is_present() -> None:
+    assert extract_claims(
+        "Michael Dowse",
+        "Mackenzie Davis appeared in the 2013 Canadian romantic comedy film directed by whom?",
+    ) == ["Michael Dowse"]
+    assert extract_claims("yes", "Was Python created by Guido van Rossum?") == []
+
+
+def test_numbered_winner_list_becomes_complete_claims() -> None:
+    answer = "1. Nethra Raghuraman\n2. Anushka Manchanda\n3. Shabir Ahluwalia"
+
+    assert extract_claims(answer, "Khatron Ke Khiladi winners till date") == [
+        "Nethra Raghuraman was a winner of Khatron Ke Khiladi.",
+        "Anushka Manchanda was a winner of Khatron Ke Khiladi.",
+        "Shabir Ahluwalia was a winner of Khatron Ke Khiladi.",
+    ]
+
+
+def test_gate_numbered_list_is_not_trimmed_or_split_at_item_numbers() -> None:
+    answer = (
+        "The GATE 2027 test papers are:\n"
+        "1. Aerospace Engineering (AE)\n"
+        "2. Agricultural Engineering (AG)\n"
+        "3. Architecture and Planning (AR)"
+    )
+    question = "Name all the GATE 2027 test papers"
+
+    assert extract_claims(answer, question, limit=30) == [
+        "Aerospace Engineering (AE) is included in the list of GATE 2027 test papers.",
+        "Agricultural Engineering (AG) is included in the list of GATE 2027 test papers.",
+        "Architecture and Planning (AR) is included in the list of GATE 2027 test papers.",
+    ]
+    assert limit_factual_answer(answer, question=question) == answer
+
+
+def test_grouped_option_lists_become_complete_claims() -> None:
+    answer = (
+        "For CS, the second paper options are:\n"
+        "1. Mathematics (MA)\n"
+        "2. Statistics (ST)\n\n"
+        "For DA, the second paper options are:\n"
+        "1. Computer Science and Information Technology (CS)\n"
+        "2. Electrical Engineering (EE)"
+    )
+    question = "What are the second paper options for CS and DA?"
+
+    assert extract_claims(answer, question, limit=30) == [
+        "Mathematics (MA) is an option for CS.",
+        "Statistics (ST) is an option for CS.",
+        "Computer Science and Information Technology (CS) is an option for DA.",
+        "Electrical Engineering (EE) is an option for DA.",
+    ]
+    assert limit_factual_answer(answer, question=question) == answer
+
+
+def test_compact_document_table_supports_an_option_pair() -> None:
+    evidence = [
+        EvidenceSource(
+            title="gate.pdf",
+            url="document://gate",
+            snippet="Table 4: CS: MA, ST, EC, IN. DA: CS, EC, EE.",
+        )
+    ]
+
+    assert _option_pair_support("Mathematics (MA) is an option for CS.", evidence) == 0.88
+    assert _option_pair_support("Statistics (ST) is an option for DA.", evidence) == 0.0
+
+
+def test_semantic_reranking_can_choose_a_meaningful_evidence_sentence(monkeypatch) -> None:
+    source = EvidenceSource(
+        title="Report",
+        url="https://example.com/report",
+        snippet="The project budget was approved. Priya Rao directed the initiative. An unrelated ceremony followed.",
+    )
+    monkeypatch.setattr(verifier, "_semantic_sentence_scores", lambda _claim, _sentences: [0.10, 0.98, 0.05])
+
+    excerpt = _claim_evidence_excerpt("Who led the initiative?", source)
+
+    assert "Priya Rao directed the initiative." in excerpt
+
+
+def test_verification_sources_exclude_unrelated_pages() -> None:
+    claim = ClaimAssessment(
+        claim="Bjarne Stroustrup created C++.",
+        status="supported",
+        confidence=0.95,
+        rationale="Supported by evidence.",
+    )
+    relevant = EvidenceSource(
+        title="Bjarne Stroustrup",
+        url="https://example.com/cpp",
+        snippet="Bjarne Stroustrup created the C++ programming language.",
+    )
+    unrelated = EvidenceSource(
+        title="Tyler, the Creator",
+        url="https://example.com/music",
+        snippet="An American musician and producer.",
+    )
+
+    assert select_verification_sources([claim], [unrelated, relevant]) == [relevant]
+
+
+def test_citations_are_selected_per_corrected_claim() -> None:
+    correction = "P. V. Narasimha Rao was the 9th Prime Minister of India. Ulysses S. Grant was the 18th President of the United States."
+    india = EvidenceSource(
+        title="P. V. Narasimha Rao",
+        url="https://example.com/rao",
+        snippet="P. V. Narasimha Rao served as the ninth prime minister of India.",
+    )
+    united_states = EvidenceSource(
+        title="Ulysses S. Grant",
+        url="https://example.com/grant",
+        snippet="Ulysses S. Grant was the 18th president of the United States.",
+    )
+    unrelated = EvidenceSource(
+        title="India-Indonesia relations",
+        url="https://example.com/relations",
+        snippet="India and Indonesia have longstanding diplomatic relations.",
+    )
+
+    citations = select_citations(correction, [unrelated, india, united_states])
+    assert citations == [india, united_states]
+
+
+def test_claim_citations_require_a_strong_match_and_distinct_domains() -> None:
+    claim = "Guido van Rossum created Python."
+    relevant = EvidenceSource(
+        title="Python",
+        url="https://www.python.org/doc/essays/blurb/",
+        snippet="Python was created by Guido van Rossum and first released in 1991.",
+        credibility=0.95,
+    )
+    duplicate_domain = EvidenceSource(
+        title="Python history",
+        url="https://www.python.org/history/",
+        snippet="Guido van Rossum created Python in the late 1980s.",
+        credibility=0.95,
+    )
+    unrelated = EvidenceSource(
+        title="JavaScript",
+        url="https://example.com/javascript",
+        snippet="JavaScript was created by Brendan Eich.",
+    )
+
+    citations = select_claim_citations(claim, [unrelated, duplicate_domain, relevant])
+    assert len(citations) == 1
+    assert citations[0].url.startswith("https://www.python.org/")
+
+
+def test_claim_citations_prefer_the_canonical_entity_page_over_a_relative() -> None:
+    claim = "Rahul Dev Burman was an Indian music director."
+    related_page = EvidenceSource(
+        title="Meera Dev Burman",
+        url="https://example.com/meera-burman",
+        snippet="Rahul Dev Burman was an Indian music director and composer.",
+    )
+    canonical_page = EvidenceSource(
+        title="R. D. Burman",
+        url="https://example.com/rd-burman",
+        snippet="Rahul Dev Burman was an Indian music director and composer.",
+    )
+
+    citations = select_claim_citations(claim, [related_page, canonical_page])
+
+    assert citations[0] == canonical_page
+
+
+def test_verify_claims_marks_supported_overlap() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Python",
+            url="https://example.com/python",
+            snippet="Python was created by Guido van Rossum and first released in 1991.",
+        )
+    ]
+    answer = "Python was created by Guido van Rossum and first released in 1991."
+    claims = verify_claims(answer, evidence)
+    assert claims[0].status == "supported"
+    assert reliability_score(claims) > 0.5
+
+
+def test_near_verbatim_evidence_overrides_a_single_false_nli_contradiction(monkeypatch) -> None:
+    class FalseContradictionModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.80, 0.10, 0.10]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: FalseContradictionModel())
+    claim = "Kalam served as the president of India from 2002 to 2007."
+    evidence = [
+        EvidenceSource(
+            title="A. P. J. Abdul Kalam",
+            url="https://example.com/kalam",
+            snippet="Kalam served as the president of India from 2002 to 2007.",
+        )
+    ]
+
+    status, _confidence, rationale, _agreement = verifier._nli_verdict(claim, evidence)
+
+    assert status == "supported"
+    assert "directly matches" in rationale
+
+
+def test_disputed_report_is_not_verified_as_an_established_fact(monkeypatch) -> None:
+    class NeutralModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.05, 0.10, 0.85]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: NeutralModel())
+    evidence = [
+        EvidenceSource(
+            title="News report",
+            url="https://example.com/report",
+            snippet=(
+                "Two magazines reported that a video was recovered from the wreckage. "
+                "Investigators said they were not aware of any such video and called the reports completely wrong."
+            ),
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "A video was recovered by investigators from the wreckage.", evidence
+    )
+
+    assert status == "unsupported"
+    assert confidence == 0.82
+    assert "unverified or disputed" in rationale
+
+
+def test_conflicting_year_for_the_same_event_is_unsupported() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Satyam case",
+            url="https://example.com/satyam",
+            snippet=(
+                "In 2009, Satyam Computers Services was at the center of a $1.6 billion fraud case "
+                "after its chairman admitted inflating profits with fictitious assets."
+            ),
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "Satyam Computers Services was caught in a $1.6 billion fraud case in 2001.", evidence
+    )
+
+    assert status == "unsupported"
+    assert confidence == 0.86
+    assert "different year" in rationale
+
+
+def test_exact_date_support_overrides_an_nli_outlier_for_any_named_subject(monkeypatch) -> None:
+    class FalseContradictionModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.95, 0.03, 0.02]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: FalseContradictionModel())
+    evidence = [
+        EvidenceSource(
+            title="Subhas Chandra Bose",
+            url="https://example.com/subhas-bose",
+            snippet="Subhas Chandra Bose died from burns on 18 August 1945 after an aircraft crash.",
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "Subhash Chandra Bose died on 18 August 1945.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.95
+    assert "date and subject" in rationale
+
+
+def test_generic_collection_page_is_not_used_as_a_biography_citation() -> None:
+    claim = "Subhas Chandra Bose was forced to land after departing Saigon."
+    generic_list = EvidenceSource(
+        title="List of aircraft hijackings",
+        url="https://example.com/aircraft-list",
+        snippet="Aircraft incidents have occurred in many countries.",
+    )
+    direct_profile = EvidenceSource(
+        title="Death of Subhas Chandra Bose",
+        url="https://example.com/subhas-death",
+        snippet="Subhas Chandra Bose's aircraft departed from Saigon and crashed near Taihoku.",
+    )
+
+    assert select_claim_citations(claim, [generic_list, direct_profile]) == [direct_profile]
+
+
+def test_indirect_single_source_contradiction_is_kept_for_review(monkeypatch) -> None:
+    class ContradictionModel:
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                id2label={0: "contradiction", 1: "entailment", 2: "neutral"}
+            )
+        )
+
+        def predict(self, _pairs, *, apply_softmax: bool):
+            assert apply_softmax
+            return [[0.90, 0.05, 0.05]]
+
+    monkeypatch.setattr(verifier, "_nli_model", lambda: ContradictionModel())
+    evidence = [
+        EvidenceSource(
+            title="Computing history overview",
+            url="https://example.com/computing-history",
+            snippet="Computer science has a long history with many influential people.",
+        )
+    ]
+
+    status, _confidence, rationale, _agreement = verifier._nli_verdict(
+        "Ada Lovelace wrote the first computer algorithm.", evidence
+    )
+
+    assert status == "uncertain"
+    assert "too indirect" in rationale
+
+
+def test_uploaded_document_section_labels_support_a_section_count() -> None:
+    headings = " ".join(f"Section {index}: Topic {index}." for index in range(1, 11))
+    evidence = [
+        EvidenceSource(
+            title="syllabus.pdf",
+            url="document://syllabus",
+            snippet=headings,
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "The syllabus contains ten sections in total.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.90
+    assert "section headings" in rationale
+
+
+def test_negated_year_claim_is_supported_by_the_true_year() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Albert Einstein",
+            url="https://example.com/einstein",
+            snippet="Albert Einstein was born on 14 March 1879 in Ulm.",
+        )
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "No, Albert Einstein was not born in 1889.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.93
+    assert "negated claim" in rationale
+
+
+def test_same_year_direct_evidence_prevents_a_false_year_conflict() -> None:
+    evidence = [
+        EvidenceSource(
+            title="Marie Curie",
+            url="https://example.com/curie",
+            snippet="Marie Curie became the first female professor at the University of Paris in 1906.",
+        ),
+        EvidenceSource(
+            title="Curie timeline",
+            url="https://example.net/curie",
+            snippet="Marie Curie's later research was recognized in 1911.",
+        ),
+    ]
+
+    status, confidence, rationale, _agreement = verifier._nli_verdict(
+        "Marie Curie became the first female professor at the University of Paris in 1906.", evidence
+    )
+
+    assert status == "supported"
+    assert confidence == 0.92
+    assert "year, subject, and event" in rationale
+
+
+def test_vague_reference_sentence_is_not_verified_against_an_unrelated_entity() -> None:
+    answer = (
+        "James Gosling designed the Java programming language. "
+        "The technology was developed at a software company."
+    )
+
+    assert extract_claims(answer) == ["James Gosling designed the Java programming language."]
+
+
+def test_person_pronouns_are_resolved_after_a_wider_range_of_factual_verbs() -> None:
+    answer = (
+        "Marie Curie shared the 1903 Nobel Prize in Physics. "
+        "She became the first female professor at the University of Paris in 1906."
+    )
+
+    assert extract_claims(answer) == [
+        "Marie Curie shared the 1903 Nobel Prize in Physics.",
+        "Marie Curie became the first female professor at the University of Paris in 1906.",
+    ]
+
+
+def test_reliability_rewards_credible_and_independent_evidence() -> None:
+    high_quality = ClaimAssessment(
+        claim="Python was created by Guido van Rossum.",
+        status="supported",
+        confidence=0.90,
+        rationale="Supported.",
+        evidence_quality=0.95,
+        source_agreement=1.0,
+    )
+    lower_quality = ClaimAssessment(
+        claim="Python was created by Guido van Rossum.",
+        status="supported",
+        confidence=0.90,
+        rationale="Supported.",
+        evidence_quality=0.35,
+        source_agreement=0.60,
+    )
+
+    assert reliability_score([high_quality]) > reliability_score([lower_quality])
+
+
+def test_unsupported_claim_never_receives_reliability_from_source_quality() -> None:
+    unsupported = ClaimAssessment(
+        claim="Python was created by someone else.",
+        status="unsupported",
+        confidence=1.0,
+        rationale="Contradicted.",
+        evidence_quality=0.95,
+        source_agreement=1.0,
+    )
+
+    assert reliability_score([unsupported]) == 0.0

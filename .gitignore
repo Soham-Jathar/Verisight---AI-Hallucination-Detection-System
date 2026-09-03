@@ -1,0 +1,23 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+
+# JavaScript
+frontend/node_modules/
+frontend/dist/
+
+# Generated benchmark artifacts
+evaluation/__pycache__/
+evaluation/results/
+evaluation/vendor/
+evaluation/datasets/halueval_*.jsonl
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Editor files
+.vscode/
+.idea/
