@@ -59,10 +59,11 @@ Response (frontend uses `message`; additional fields are ready for later UI work
 }
 ```
 
-Supported modes today:
+Supported modes:
 
-- `web` — retrieves evidence from Wikipedia and DuckDuckGo, verifies claim overlap
-- `document`, `hybrid` — return `501 Not Implemented` (frontend options are disabled)
+- `web` — retrieves and filters web evidence, then verifies generated factual claims
+- `document` — verifies against uploaded PDF evidence
+- `hybrid` — combines uploaded-document and web evidence
 
 ## Environment variables
 
@@ -70,13 +71,15 @@ See `.env.example`. All are optional for local development.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OPENAI_API_KEY` | unset | Enables LLM answer generation |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Compatible API base URL |
+| `GEMINI_API_KEY` | unset | Enables Gemini answer generation |
+| `GEMINI_MODEL` | configured model | Gemini model name |
+| `GROQ_API_KEY` | unset | Enables Groq answer generation |
+| `GROQ_MODEL` | configured model | Groq model name |
+| `TAVILY_API_KEY` | unset | Enables Tavily web retrieval |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated frontend origins |
 | `REQUEST_TIMEOUT_SECONDS` | `30` | External HTTP timeout |
 
-Without `OPENAI_API_KEY`, the service still works by synthesizing an answer from retrieved web evidence.
+Without an LLM provider key, the API returns a clear provider-configuration error rather than inventing an answer.
 
 ## Tests
 
@@ -86,7 +89,7 @@ pytest
 
 ## Frontend integration
 
-The React app expects the backend at `http://localhost:8000` by default. Override with `VITE_API_URL` in the frontend `.env` if needed.
+The React app expects the backend at `http://localhost:8000` by default. Override with `VITE_API_URL` in the frontend `.env` if needed. For production, use the public HTTPS backend URL and set the matching frontend URL in `CORS_ORIGINS`.
 
 Run both services locally:
 
