@@ -31,7 +31,7 @@ DeBERTa Natural Language Inference verifier
 Reliability, uncertainty, citations, and evidence-grounded correction
 ```
 
-![VeriSight end-to-end workflow](docs/verisight-complete-workflow-bidirectional.png)
+![VeriSight end-to-end workflow](docs/verisight-complete-workflow-render.png)
 
 ## Key features
 
