@@ -25,6 +25,16 @@ def test_root_endpoint(client: TestClient) -> None:
     assert "message" in response.json()
 
 
+def test_render_static_frontend_is_allowed_by_cors(client: TestClient) -> None:
+    response = client.get(
+        "/health",
+        headers={"Origin": "https://verisight-web.onrender.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://verisight-web.onrender.com"
+
+
 def test_analyze_requires_question(client: TestClient) -> None:
     response = client.post("/api/analyze", json={"question": "ab", "mode": "web"})
     assert response.status_code == 422
